@@ -10,6 +10,9 @@ import cv2
 import math
 from shapely.geometry import Point, MultiPoint
 
+from PIL import Image, ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 def load_camera_data(camera_files, preload=True):
     """
     Args:

@@ -5,8 +5,8 @@ test_dir: "dataset/OPV2V/test"
 
 yaml_parser: "load_general_params"
 train_params:
-  batch_size: &batch_size 4
-  epoches: 30
+  batch_size: &batch_size 2
+  epoches: 25
   eval_freq: 2
   save_freq: 2
   max_cav: 5

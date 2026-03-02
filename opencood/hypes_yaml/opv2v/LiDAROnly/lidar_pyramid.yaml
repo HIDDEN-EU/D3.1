@@ -5,8 +5,8 @@ test_dir: "dataset/OPV2V/test"
 
 yaml_parser: "load_general_params"
 train_params:
-  batch_size: &batch_size 4
-  epoches: 30
+  batch_size: &batch_size 2
+  epoches: 25
   eval_freq: 2
   save_freq: 2
   max_cav: 5
@@ -139,7 +139,7 @@ model:
 
 
 loss:
-  core_method: point_pillar_pyramid_loss
+  core_method: point_pillar_pyramid_loss # name of the file to use for loss 
   args:
     pos_cls_weight: 2.0
     cls:

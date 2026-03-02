@@ -150,6 +150,7 @@ def inference_early_fusion(batch_data, model, dataset):
                     "gt_box_tensor" : gt_box_tensor}
     if "depth_items" in output_dict['ego']:
         return_dict.update({"depth_items" : output_dict['ego']['depth_items']})
+    
     return return_dict
 
 

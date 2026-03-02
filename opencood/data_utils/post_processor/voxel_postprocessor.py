@@ -293,7 +293,7 @@ class VoxelPostprocessor(BasePostprocessor):
 
             # classification probability
             prob = output_dict[cav_id]['cls_preds']
-            prob = F.sigmoid(prob.permute(0, 2, 3, 1))
+            prob = torch.sigmoid(prob.permute(0, 2, 3, 1))
             prob = prob.reshape(1, -1)
 
             # regression map

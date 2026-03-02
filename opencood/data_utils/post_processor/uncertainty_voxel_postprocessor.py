@@ -38,7 +38,7 @@ class UncertaintyVoxelPostprocessor(VoxelPostprocessor):
 
         # the final bounding box list
         uncertainty_dim = unc_preds.shape[1] // cls_preds.shape[1]
-        cls_preds = F.sigmoid(cls_preds.permute(0, 2, 3, 1).contiguous())  # [N, H, W, anchor_num]
+        cls_preds = torch.sigmoid(cls_preds.permute(0, 2, 3, 1).contiguous())  # [N, H, W, anchor_num]
         unc_preds = unc_preds.permute(0,2,3,1).contiguous() #[N, H, W, anchor_num * 2]
 
         # convert regression map back to bounding box
@@ -133,7 +133,7 @@ class UncertaintyVoxelPostprocessor(VoxelPostprocessor):
             # classification probability
             uncertainty_dim = output_dict[cav_id]['unc_preds'].shape[1] // output_dict[cav_id]['cls_preds'].shape[1]
             prob = output_dict[cav_id]['cls_preds']
-            prob = F.sigmoid(prob.permute(0, 2, 3, 1))
+            prob = torch.sigmoid(prob.permute(0, 2, 3, 1))
             prob = prob.reshape(1, -1)
 
             # regression map

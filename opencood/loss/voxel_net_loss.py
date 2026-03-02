@@ -32,7 +32,7 @@ class VoxelNetLoss(nn.Module):
         neg_equal_one = target_dict['neg_equal_one']
         targets = target_dict['targets']
 
-        p_pos = F.sigmoid(psm.permute(0, 2, 3, 1))
+        p_pos = torch.sigmoid(psm.permute(0, 2, 3, 1))
         rm = rm.permute(0, 2, 3, 1).contiguous()
         rm = rm.view(rm.size(0), rm.size(1), rm.size(2), -1, 7)
         targets = targets.view(targets.size(0), targets.size(1),
