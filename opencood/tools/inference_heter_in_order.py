@@ -241,6 +241,9 @@ def main():
                     raise NotImplementedError('Only single, no, no_w_uncertainty, early, late and intermediate'
                                             'fusion is supported.')
 
+                # of shape [N, 8, 3]
+                # N: number of objects detected
+                # [8, 3]: coordinates of the 8 bounding box corners, in 3-dimensions
                 pred_box_tensor = infer_result['pred_box_tensor']
                 gt_box_tensor = infer_result['gt_box_tensor']
                 pred_score = infer_result['pred_score']

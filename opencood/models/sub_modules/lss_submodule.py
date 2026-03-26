@@ -5,6 +5,7 @@
 import torch
 from torch import nn
 from efficientnet_pytorch import EfficientNet
+from torchvision.models.resnet import resnet18
 from torchvision.models.resnet import resnet101
 import torch.nn.functional as F
 from opencood.utils.camera_utils import bin_depths
