@@ -54,6 +54,9 @@ def test_parser():
     parser.add_argument('--lidar_degrade', action='store_true',
                         help="whether to degrade lidar. {m1:32, m3:16} and {m1:16, m3:16}")
     parser.add_argument('--note', default="", type=str, help="any other thing?")
+    parser.add_argument('--measure_perf', action='store_true',
+                        help='measure inference FPS and peak GPU memory, '
+                             'save results to model_dir')
     opt = parser.parse_args()
     return opt
 
@@ -187,6 +190,14 @@ def main():
         if opt.lidar_degrade:
             infer_info += f"_m1_{lidar_config['m1']}_m3_{lidar_config['m3']}"
 
+        if opt.measure_perf:
+            WARMUP_ITERS = 5
+            perf_timings = []
+            torch.cuda.reset_peak_memory_stats()
+            use_cuda_events = torch.cuda.is_available()
+            if use_cuda_events:
+                starter = torch.cuda.Event(enable_timing=True)
+                ender   = torch.cuda.Event(enable_timing=True)
 
         for i, batch_data in enumerate(data_loader):
             # we can just save the batch_data to file. For perfomance test.
@@ -219,6 +230,13 @@ def main():
             with torch.no_grad():
                 batch_data = train_utils.to_device(batch_data, device)
 
+                if opt.measure_perf:
+                    if use_cuda_events:
+                        torch.cuda.synchronize()
+                        starter.record()
+                    else:
+                        _t0 = time.time()
+
                 if opt.fusion_method == 'late':
                     infer_result = inference_late_fusion_heter_in_order(batch_data,
                                                             model,
@@ -240,6 +258,16 @@ def main():
                 else:
                     raise NotImplementedError('Only single, no, no_w_uncertainty, early, late and intermediate'
                                             'fusion is supported.')
+
+                if opt.measure_perf:
+                    if use_cuda_events:
+                        ender.record()
+                        torch.cuda.synchronize()
+                        elapsed = starter.elapsed_time(ender) / 1000.0  # ms -> s
+                    else:
+                        elapsed = time.time() - _t0
+                    if i >= WARMUP_ITERS:
+                        perf_timings.append(elapsed)
 
                 # of shape [N, 8, 3]
                 # N: number of objects detected
@@ -286,6 +314,38 @@ def main():
                                         method='bev',
                                         left_hand=left_hand)
             torch.cuda.empty_cache()
+
+        if opt.measure_perf:
+            peak_mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2) \
+                          if torch.cuda.is_available() else 0.0
+
+            if len(perf_timings) > 0:
+                total_time  = sum(perf_timings)
+                num_samples = len(perf_timings)
+                fps         = num_samples / total_time
+                mean_ms     = (total_time / num_samples) * 1000
+                std_ms      = float(np.std(perf_timings)) * 1000
+            else:
+                fps = mean_ms = std_ms = 0.0
+                num_samples = 0
+
+            perf_lines = [
+                f"Perf measurement for: {infer_info}",
+                f"Warmup samples skipped: {WARMUP_ITERS}",
+                f"Samples measured: {num_samples}",
+                f"FPS (samples/sec): {fps:.3f}",
+                f"Mean latency (ms): {mean_ms:.3f}",
+                f"Std latency (ms):  {std_ms:.3f}",
+                f"Peak GPU memory allocated (MB): {peak_mem_mb:.1f}",
+                f"Timing backend: {'cuda_event' if use_cuda_events else 'time.time'}",
+            ]
+            for line in perf_lines:
+                print(line)
+
+            perf_file = os.path.join(opt.model_dir, f'perf_{infer_info}.txt')
+            with open(perf_file, 'w') as f:
+                f.write('\n'.join(perf_lines) + '\n')
+            print(f"Perf results saved to {perf_file}")
 
         _, ap50, ap70 = eval_utils.eval_final_results(result_stat,
                                     opt.model_dir, infer_info)
