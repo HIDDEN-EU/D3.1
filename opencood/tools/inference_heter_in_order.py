@@ -183,9 +183,11 @@ def main():
         if opt.measure_perf:
             profiler.patch_callable(opencood_dataset, 'post_process', 'post_process',
                                     cpu_only=True)
-        # opencood_dataset_subset = Subset(opencood_dataset, range(1220,1260))
-        # data_loader = DataLoader(opencood_dataset_subset,
-        data_loader = DataLoader(opencood_dataset,
+            
+        print("Using Subset of DATASET!")
+        opencood_dataset_subset = Subset(opencood_dataset, range(1200,1305))
+        data_loader = DataLoader(opencood_dataset_subset,
+        # data_loader = DataLoader(opencood_dataset,
                                 batch_size=1,
                                 num_workers=4,
                                 collate_fn=opencood_dataset.collate_batch_test,
@@ -237,7 +239,8 @@ def main():
             #         break
             # raise
 
-            print(f"{infer_info}_{i}")
+            if i % 10 == 0:
+                print(f"{infer_info}_{i}")
             if batch_data is None:
                 continue
 
