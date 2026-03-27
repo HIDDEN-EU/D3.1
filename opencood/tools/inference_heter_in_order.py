@@ -356,6 +356,12 @@ def main():
                 f"Peak GPU memory allocated (MB): {peak_mem_mb:.1f}",
                 f"Timing backend: {'cuda_event' if use_cuda_events else 'time.time'}",
             ]
+            extra = {}
+            if hasattr(model, 'pyramid_backbone'):
+                extra['fusion'] = model.pyramid_backbone
+            elif hasattr(model, 'fusion_net'):
+                extra['fusion'] = model.fusion_net
+            perf_lines.extend(profiler.report_weight_lines(model, extra_modules=extra))
             perf_lines.extend(profiler.report_lines(mean_ms))
             for line in perf_lines:
                 print(line)

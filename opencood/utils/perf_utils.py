@@ -149,6 +149,47 @@ class PerfProfiler:
         self._hooks.clear()
 
     # ------------------------------------------------------------------
+    # Model weight size
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def module_weights_mb(module) -> float:
+        """Return the total size of *module*'s parameters + buffers in MB."""
+        total = sum(p.numel() * p.element_size() for p in module.parameters())
+        total += sum(b.numel() * b.element_size() for b in module.buffers())
+        return total / (1024 ** 2)
+
+    def report_weight_lines(self, model, prefixes=('encoder_', 'backbone_', 'aligner_'),
+                            extra_modules: dict | None = None) -> list[str]:
+        """Return formatted lines showing parameter+buffer memory for each
+        matched direct child of *model* plus any entries in *extra_modules*.
+
+        Parameters
+        ----------
+        model:         The top-level nn.Module.
+        prefixes:      Same prefix tuple used in hook_model().
+        extra_modules: Optional mapping of label -> nn.Module for modules that
+                       are not direct children or use a different name
+                       (e.g. {'fusion': model.pyramid_backbone}).
+        """
+        lines = ['  -- model weight sizes --']
+        total_mb = 0.0
+
+        for mod_name, submod in model.named_children():
+            if any(mod_name.startswith(p) for p in prefixes):
+                mb = self.module_weights_mb(submod)
+                total_mb += mb
+                lines.append(f"  [{mod_name}] weights (MB): {mb:.1f}")
+
+        for label, submod in (extra_modules or {}).items():
+            mb = self.module_weights_mb(submod)
+            total_mb += mb
+            lines.append(f"  [{label}] weights (MB): {mb:.1f}")
+
+        lines.append(f"  [total measured] weights (MB): {total_mb:.1f}")
+        return lines
+
+    # ------------------------------------------------------------------
     # Reporting
     # ------------------------------------------------------------------
 
