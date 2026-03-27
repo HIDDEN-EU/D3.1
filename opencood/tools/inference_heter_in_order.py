@@ -19,6 +19,7 @@ import os
 import time
 from typing import OrderedDict
 import importlib
+from opencood.utils.perf_utils import PerfProfiler
 import torch
 import open3d as o3d
 from torch.utils.data import DataLoader, Subset
@@ -134,90 +135,12 @@ def main():
     model.eval()
 
     if opt.measure_perf:
-        sub_timings = {}   # name -> list[float seconds]
-        sub_mem     = {}   # name -> list[float MB], CUDA only
-        _hooks = []
-
-        if torch.cuda.is_available():
-            def _make_cuda_hooks(key):
-                def pre(mod, inp):
-                    torch.cuda.synchronize()
-                    mod._mem_before = torch.cuda.memory_allocated()
-                    evt = torch.cuda.Event(enable_timing=True)
-                    evt.record()
-                    mod._t_start = evt
-                def post(mod, inp, out):
-                    end = torch.cuda.Event(enable_timing=True)
-                    end.record()
-                    torch.cuda.synchronize()
-                    sub_timings.setdefault(key, []).append(
-                        mod._t_start.elapsed_time(end) / 1000.0)
-                    sub_mem.setdefault(key, []).append(
-                        (torch.cuda.memory_allocated() - mod._mem_before) / (1024 ** 2))
-                return pre, post
-        else:
-            def _make_cuda_hooks(key):
-                def pre(mod, inp):
-                    mod._t_start = time.time()
-                def post(mod, inp, out):
-                    sub_timings.setdefault(key, []).append(time.time() - mod._t_start)
-                return pre, post
-
-        _TIMED_PREFIXES = ('encoder_', 'backbone_', 'aligner_')
-        for mod_name, submod in model.named_children():
-            if any(mod_name.startswith(p) for p in _TIMED_PREFIXES):
-                pre_h, post_h = _make_cuda_hooks(mod_name)
-                _hooks.append(submod.register_forward_pre_hook(pre_h))
-                _hooks.append(submod.register_forward_hook(post_h))
-
+        profiler = PerfProfiler(use_cuda=torch.cuda.is_available())
+        profiler.hook_model(model)
         if hasattr(model, 'pyramid_backbone'):
-            _orig_collab = model.pyramid_backbone.forward_collab
-            if torch.cuda.is_available():
-                _fc_start = torch.cuda.Event(enable_timing=True)
-                _fc_end   = torch.cuda.Event(enable_timing=True)
-                def _timed_collab(*a, **kw):
-                    torch.cuda.synchronize()
-                    _mem_before = torch.cuda.memory_allocated()
-                    _fc_start.record()
-                    r = _orig_collab(*a, **kw)
-                    _fc_end.record()
-                    torch.cuda.synchronize()
-                    sub_timings.setdefault('fusion', []).append(
-                        _fc_start.elapsed_time(_fc_end) / 1000.0)
-                    sub_mem.setdefault('fusion', []).append(
-                        (torch.cuda.memory_allocated() - _mem_before) / (1024 ** 2))
-                    return r
-            else:
-                def _timed_collab(*a, **kw):
-                    t0 = time.time()
-                    r  = _orig_collab(*a, **kw)
-                    sub_timings.setdefault('fusion', []).append(time.time() - t0)
-                    return r
-            model.pyramid_backbone.forward_collab = _timed_collab
+            profiler.patch_callable(model.pyramid_backbone, 'forward_collab', 'fusion')
         elif hasattr(model, 'fusion_net'):
-            _orig_fn = model.fusion_net.forward
-            if torch.cuda.is_available():
-                _fn_start = torch.cuda.Event(enable_timing=True)
-                _fn_end   = torch.cuda.Event(enable_timing=True)
-                def _timed_fn(*a, **kw):
-                    torch.cuda.synchronize()
-                    _mem_before = torch.cuda.memory_allocated()
-                    _fn_start.record()
-                    r = _orig_fn(*a, **kw)
-                    _fn_end.record()
-                    torch.cuda.synchronize()
-                    sub_timings.setdefault('fusion', []).append(
-                        _fn_start.elapsed_time(_fn_end) / 1000.0)
-                    sub_mem.setdefault('fusion', []).append(
-                        (torch.cuda.memory_allocated() - _mem_before) / (1024 ** 2))
-                    return r
-            else:
-                def _timed_fn(*a, **kw):
-                    t0 = time.time()
-                    r  = _orig_fn(*a, **kw)
-                    sub_timings.setdefault('fusion', []).append(time.time() - t0)
-                    return r
-            model.fusion_net.forward = _timed_fn
+            profiler.patch_callable(model.fusion_net, 'forward', 'fusion')
 
     # setting noise
     np.random.seed(303)
@@ -258,15 +181,8 @@ def main():
         opencood_dataset = build_dataset(hypes, visualize=True, train=False)
 
         if opt.measure_perf:
-            _orig_post_process = opencood_dataset.post_process
-            def _timed_post_process(*a, **kw):
-                if torch.cuda.is_available():
-                    torch.cuda.synchronize()
-                t0 = time.time()
-                r = _orig_post_process(*a, **kw)
-                sub_timings.setdefault('post_process', []).append(time.time() - t0)
-                return r
-            opencood_dataset.post_process = _timed_post_process
+            profiler.patch_callable(opencood_dataset, 'post_process', 'post_process',
+                                    cpu_only=True)
         # opencood_dataset_subset = Subset(opencood_dataset, range(1220,1260))
         # data_loader = DataLoader(opencood_dataset_subset,
         data_loader = DataLoader(opencood_dataset,
@@ -326,8 +242,7 @@ def main():
                 continue
 
             if opt.measure_perf and i == WARMUP_ITERS:
-                sub_timings.clear()
-                sub_mem.clear()
+                profiler.reset()
 
             with torch.no_grad():
                 batch_data = train_utils.to_device(batch_data, device)
@@ -441,44 +356,7 @@ def main():
                 f"Peak GPU memory allocated (MB): {peak_mem_mb:.1f}",
                 f"Timing backend: {'cuda_event' if use_cuda_events else 'time.time'}",
             ]
-            total_comp_s = 0.0
-            for comp_key in sorted(k for k in sub_timings
-                                   if any(k.startswith(p) for p in _TIMED_PREFIXES)):
-                ts = sub_timings[comp_key]
-                ms = sub_mem.get(comp_key, [])
-                if ts:
-                    comp_mean_s = float(np.mean(ts))
-                    total_comp_s += comp_mean_s
-                    line = (f"  [{comp_key}] mean (ms): {comp_mean_s*1000:.3f}"
-                            f"  std: {float(np.std(ts))*1000:.3f}")
-                    if ms:
-                        line += (f"  mem_delta (MB): {float(np.mean(ms)):.1f}"
-                                 f" \u00b1 {float(np.std(ms)):.1f}")
-                    perf_lines.append(line)
-            if sub_timings.get('fusion'):
-                fts = sub_timings['fusion']
-                fms = sub_mem.get('fusion', [])
-                fus_mean_s = float(np.mean(fts))
-                total_comp_s += fus_mean_s
-                line = (f"  [fusion] mean (ms): {fus_mean_s*1000:.3f}"
-                        f"  std: {float(np.std(fts))*1000:.3f}")
-                if fms:
-                    line += (f"  mem_delta (MB): {float(np.mean(fms)):.1f}"
-                             f" \u00b1 {float(np.std(fms)):.1f}")
-                perf_lines.append(line)
-            if sub_timings.get('post_process'):
-                pts = sub_timings['post_process']
-                pp_mean_s = float(np.mean(pts))
-                total_comp_s += pp_mean_s
-                perf_lines.append(
-                    f"  [post_process] mean (ms): {pp_mean_s*1000:.3f}"
-                    f"  std: {float(np.std(pts))*1000:.3f}  (wall-clock, CPU-bound)"
-                )
-            if num_samples > 0 and total_comp_s > 0:
-                unaccounted_ms = mean_ms - total_comp_s * 1000
-                perf_lines.append(
-                    f"  [unaccounted: heads/misc] mean (ms): {unaccounted_ms:.3f}"
-                )
+            perf_lines.extend(profiler.report_lines(mean_ms))
             for line in perf_lines:
                 print(line)
 
