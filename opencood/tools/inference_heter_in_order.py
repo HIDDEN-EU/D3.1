@@ -256,6 +256,17 @@ def main():
         # build dataset for each noise setting
         print('Dataset Building')
         opencood_dataset = build_dataset(hypes, visualize=True, train=False)
+
+        if opt.measure_perf:
+            _orig_post_process = opencood_dataset.post_process
+            def _timed_post_process(*a, **kw):
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                t0 = time.time()
+                r = _orig_post_process(*a, **kw)
+                sub_timings.setdefault('post_process', []).append(time.time() - t0)
+                return r
+            opencood_dataset.post_process = _timed_post_process
         # opencood_dataset_subset = Subset(opencood_dataset, range(1220,1260))
         # data_loader = DataLoader(opencood_dataset_subset,
         data_loader = DataLoader(opencood_dataset,
@@ -455,10 +466,18 @@ def main():
                     line += (f"  mem_delta (MB): {float(np.mean(fms)):.1f}"
                              f" \u00b1 {float(np.std(fms)):.1f}")
                 perf_lines.append(line)
+            if sub_timings.get('post_process'):
+                pts = sub_timings['post_process']
+                pp_mean_s = float(np.mean(pts))
+                total_comp_s += pp_mean_s
+                perf_lines.append(
+                    f"  [post_process] mean (ms): {pp_mean_s*1000:.3f}"
+                    f"  std: {float(np.std(pts))*1000:.3f}  (wall-clock, CPU-bound)"
+                )
             if num_samples > 0 and total_comp_s > 0:
                 unaccounted_ms = mean_ms - total_comp_s * 1000
                 perf_lines.append(
-                    f"  [unaccounted: heads/post-proc] mean (ms): {unaccounted_ms:.3f}"
+                    f"  [unaccounted: heads/misc] mean (ms): {unaccounted_ms:.3f}"
                 )
             for line in perf_lines:
                 print(line)
