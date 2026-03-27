@@ -163,8 +163,9 @@ def main():
                     sub_timings.setdefault(key, []).append(time.time() - mod._t_start)
                 return pre, post
 
-        for mod_name, submod in model.named_modules():
-            if mod_name.startswith('encoder_'):
+        _TIMED_PREFIXES = ('encoder_', 'backbone_', 'aligner_')
+        for mod_name, submod in model.named_children():
+            if any(mod_name.startswith(p) for p in _TIMED_PREFIXES):
                 pre_h, post_h = _make_cuda_hooks(mod_name)
                 _hooks.append(submod.register_forward_pre_hook(pre_h))
                 _hooks.append(submod.register_forward_hook(post_h))
@@ -429,11 +430,15 @@ def main():
                 f"Peak GPU memory allocated (MB): {peak_mem_mb:.1f}",
                 f"Timing backend: {'cuda_event' if use_cuda_events else 'time.time'}",
             ]
-            for enc_key in sorted(k for k in sub_timings if k.startswith('encoder_')):
-                ts = sub_timings[enc_key]
-                ms = sub_mem.get(enc_key, [])
+            total_comp_s = 0.0
+            for comp_key in sorted(k for k in sub_timings
+                                   if any(k.startswith(p) for p in _TIMED_PREFIXES)):
+                ts = sub_timings[comp_key]
+                ms = sub_mem.get(comp_key, [])
                 if ts:
-                    line = (f"  Encoder [{enc_key}] mean (ms): {float(np.mean(ts))*1000:.3f}"
+                    comp_mean_s = float(np.mean(ts))
+                    total_comp_s += comp_mean_s
+                    line = (f"  [{comp_key}] mean (ms): {comp_mean_s*1000:.3f}"
                             f"  std: {float(np.std(ts))*1000:.3f}")
                     if ms:
                         line += (f"  mem_delta (MB): {float(np.mean(ms)):.1f}"
@@ -442,12 +447,19 @@ def main():
             if sub_timings.get('fusion'):
                 fts = sub_timings['fusion']
                 fms = sub_mem.get('fusion', [])
-                line = (f"  Fusion mean (ms): {float(np.mean(fts))*1000:.3f}"
+                fus_mean_s = float(np.mean(fts))
+                total_comp_s += fus_mean_s
+                line = (f"  [fusion] mean (ms): {fus_mean_s*1000:.3f}"
                         f"  std: {float(np.std(fts))*1000:.3f}")
                 if fms:
                     line += (f"  mem_delta (MB): {float(np.mean(fms)):.1f}"
                              f" \u00b1 {float(np.std(fms)):.1f}")
                 perf_lines.append(line)
+            if num_samples > 0 and total_comp_s > 0:
+                unaccounted_ms = mean_ms - total_comp_s * 1000
+                perf_lines.append(
+                    f"  [unaccounted: heads/post-proc] mean (ms): {unaccounted_ms:.3f}"
+                )
             for line in perf_lines:
                 print(line)
 
