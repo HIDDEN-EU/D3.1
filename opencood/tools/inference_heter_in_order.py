@@ -133,6 +133,76 @@ def main():
         model.cuda()
     model.eval()
 
+    if opt.measure_perf:
+        sub_timings = {}   # name -> list[float seconds]
+        _hooks = []
+
+        if torch.cuda.is_available():
+            def _make_cuda_hooks(key):
+                def pre(mod, inp):
+                    evt = torch.cuda.Event(enable_timing=True)
+                    evt.record()
+                    mod._t_start = evt
+                def post(mod, inp, out):
+                    end = torch.cuda.Event(enable_timing=True)
+                    end.record()
+                    torch.cuda.synchronize()
+                    sub_timings.setdefault(key, []).append(
+                        mod._t_start.elapsed_time(end) / 1000.0)
+                return pre, post
+        else:
+            def _make_cuda_hooks(key):
+                def pre(mod, inp):
+                    mod._t_start = time.time()
+                def post(mod, inp, out):
+                    sub_timings.setdefault(key, []).append(time.time() - mod._t_start)
+                return pre, post
+
+        for mod_name, submod in model.named_modules():
+            if mod_name.startswith('encoder_'):
+                pre_h, post_h = _make_cuda_hooks(mod_name)
+                _hooks.append(submod.register_forward_pre_hook(pre_h))
+                _hooks.append(submod.register_forward_hook(post_h))
+
+        if hasattr(model, 'pyramid_backbone'):
+            _orig_collab = model.pyramid_backbone.forward_collab
+            if torch.cuda.is_available():
+                _fc_start = torch.cuda.Event(enable_timing=True)
+                _fc_end   = torch.cuda.Event(enable_timing=True)
+                def _timed_collab(*a, **kw):
+                    torch.cuda.synchronize(); _fc_start.record()
+                    r = _orig_collab(*a, **kw)
+                    _fc_end.record(); torch.cuda.synchronize()
+                    sub_timings.setdefault('fusion', []).append(
+                        _fc_start.elapsed_time(_fc_end) / 1000.0)
+                    return r
+            else:
+                def _timed_collab(*a, **kw):
+                    t0 = time.time()
+                    r  = _orig_collab(*a, **kw)
+                    sub_timings.setdefault('fusion', []).append(time.time() - t0)
+                    return r
+            model.pyramid_backbone.forward_collab = _timed_collab
+        elif hasattr(model, 'fusion_net'):
+            _orig_fn = model.fusion_net.forward
+            if torch.cuda.is_available():
+                _fn_start = torch.cuda.Event(enable_timing=True)
+                _fn_end   = torch.cuda.Event(enable_timing=True)
+                def _timed_fn(*a, **kw):
+                    torch.cuda.synchronize(); _fn_start.record()
+                    r = _orig_fn(*a, **kw)
+                    _fn_end.record(); torch.cuda.synchronize()
+                    sub_timings.setdefault('fusion', []).append(
+                        _fn_start.elapsed_time(_fn_end) / 1000.0)
+                    return r
+            else:
+                def _timed_fn(*a, **kw):
+                    t0 = time.time()
+                    r  = _orig_fn(*a, **kw)
+                    sub_timings.setdefault('fusion', []).append(time.time() - t0)
+                    return r
+            model.fusion_net.forward = _timed_fn
+
     # setting noise
     np.random.seed(303)
 
@@ -227,6 +297,10 @@ def main():
             print(f"{infer_info}_{i}")
             if batch_data is None:
                 continue
+
+            if opt.measure_perf and i == WARMUP_ITERS:
+                sub_timings.clear()
+
             with torch.no_grad():
                 batch_data = train_utils.to_device(batch_data, device)
 
@@ -339,6 +413,19 @@ def main():
                 f"Peak GPU memory allocated (MB): {peak_mem_mb:.1f}",
                 f"Timing backend: {'cuda_event' if use_cuda_events else 'time.time'}",
             ]
+            for enc_key in sorted(k for k in sub_timings if k.startswith('encoder_')):
+                ts = sub_timings[enc_key]
+                if ts:
+                    perf_lines.append(
+                        f"  Encoder [{enc_key}] mean (ms): {float(np.mean(ts))*1000:.3f}"
+                        f"  std: {float(np.std(ts))*1000:.3f}"
+                    )
+            if sub_timings.get('fusion'):
+                fts = sub_timings['fusion']
+                perf_lines.append(
+                    f"  Fusion mean (ms): {float(np.mean(fts))*1000:.3f}"
+                    f"  std: {float(np.std(fts))*1000:.3f}"
+                )
             for line in perf_lines:
                 print(line)
 
