@@ -22,6 +22,8 @@ Usage
     lines = profiler.report_lines(e2e_mean_ms, timed_prefixes=('encoder_', 'backbone_', 'aligner_'))
 """
 
+from __future__ import annotations
+
 import time
 import numpy as np
 import torch
