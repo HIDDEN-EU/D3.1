@@ -135,11 +135,14 @@ def main():
 
     if opt.measure_perf:
         sub_timings = {}   # name -> list[float seconds]
+        sub_mem     = {}   # name -> list[float MB], CUDA only
         _hooks = []
 
         if torch.cuda.is_available():
             def _make_cuda_hooks(key):
                 def pre(mod, inp):
+                    torch.cuda.synchronize()
+                    mod._mem_before = torch.cuda.memory_allocated()
                     evt = torch.cuda.Event(enable_timing=True)
                     evt.record()
                     mod._t_start = evt
@@ -149,6 +152,8 @@ def main():
                     torch.cuda.synchronize()
                     sub_timings.setdefault(key, []).append(
                         mod._t_start.elapsed_time(end) / 1000.0)
+                    sub_mem.setdefault(key, []).append(
+                        (torch.cuda.memory_allocated() - mod._mem_before) / (1024 ** 2))
                 return pre, post
         else:
             def _make_cuda_hooks(key):
@@ -170,11 +175,16 @@ def main():
                 _fc_start = torch.cuda.Event(enable_timing=True)
                 _fc_end   = torch.cuda.Event(enable_timing=True)
                 def _timed_collab(*a, **kw):
-                    torch.cuda.synchronize(); _fc_start.record()
+                    torch.cuda.synchronize()
+                    _mem_before = torch.cuda.memory_allocated()
+                    _fc_start.record()
                     r = _orig_collab(*a, **kw)
-                    _fc_end.record(); torch.cuda.synchronize()
+                    _fc_end.record()
+                    torch.cuda.synchronize()
                     sub_timings.setdefault('fusion', []).append(
                         _fc_start.elapsed_time(_fc_end) / 1000.0)
+                    sub_mem.setdefault('fusion', []).append(
+                        (torch.cuda.memory_allocated() - _mem_before) / (1024 ** 2))
                     return r
             else:
                 def _timed_collab(*a, **kw):
@@ -189,11 +199,16 @@ def main():
                 _fn_start = torch.cuda.Event(enable_timing=True)
                 _fn_end   = torch.cuda.Event(enable_timing=True)
                 def _timed_fn(*a, **kw):
-                    torch.cuda.synchronize(); _fn_start.record()
+                    torch.cuda.synchronize()
+                    _mem_before = torch.cuda.memory_allocated()
+                    _fn_start.record()
                     r = _orig_fn(*a, **kw)
-                    _fn_end.record(); torch.cuda.synchronize()
+                    _fn_end.record()
+                    torch.cuda.synchronize()
                     sub_timings.setdefault('fusion', []).append(
                         _fn_start.elapsed_time(_fn_end) / 1000.0)
+                    sub_mem.setdefault('fusion', []).append(
+                        (torch.cuda.memory_allocated() - _mem_before) / (1024 ** 2))
                     return r
             else:
                 def _timed_fn(*a, **kw):
@@ -300,6 +315,7 @@ def main():
 
             if opt.measure_perf and i == WARMUP_ITERS:
                 sub_timings.clear()
+                sub_mem.clear()
 
             with torch.no_grad():
                 batch_data = train_utils.to_device(batch_data, device)
@@ -415,17 +431,23 @@ def main():
             ]
             for enc_key in sorted(k for k in sub_timings if k.startswith('encoder_')):
                 ts = sub_timings[enc_key]
+                ms = sub_mem.get(enc_key, [])
                 if ts:
-                    perf_lines.append(
-                        f"  Encoder [{enc_key}] mean (ms): {float(np.mean(ts))*1000:.3f}"
-                        f"  std: {float(np.std(ts))*1000:.3f}"
-                    )
+                    line = (f"  Encoder [{enc_key}] mean (ms): {float(np.mean(ts))*1000:.3f}"
+                            f"  std: {float(np.std(ts))*1000:.3f}")
+                    if ms:
+                        line += (f"  mem_delta (MB): {float(np.mean(ms)):.1f}"
+                                 f" \u00b1 {float(np.std(ms)):.1f}")
+                    perf_lines.append(line)
             if sub_timings.get('fusion'):
                 fts = sub_timings['fusion']
-                perf_lines.append(
-                    f"  Fusion mean (ms): {float(np.mean(fts))*1000:.3f}"
-                    f"  std: {float(np.std(fts))*1000:.3f}"
-                )
+                fms = sub_mem.get('fusion', [])
+                line = (f"  Fusion mean (ms): {float(np.mean(fts))*1000:.3f}"
+                        f"  std: {float(np.std(fts))*1000:.3f}")
+                if fms:
+                    line += (f"  mem_delta (MB): {float(np.mean(fms)):.1f}"
+                             f" \u00b1 {float(np.std(fms)):.1f}")
+                perf_lines.append(line)
             for line in perf_lines:
                 print(line)
 
