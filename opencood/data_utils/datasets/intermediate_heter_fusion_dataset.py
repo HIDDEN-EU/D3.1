@@ -87,6 +87,9 @@ def getIntermediateheterFusionDataset(cls):
                 elif modal_setting['sensor_type'] == 'camera':
                     setattr(self, f"data_aug_conf_{modality_name}", modal_setting['data_aug_conf'])
 
+                elif modal_setting['sensor_type'] == 'lidar_camera':
+                    setattr(self, f"pre_processor_{modality_name}", build_preprocessor(modal_setting['preprocess'], train))
+                    setattr(self, f"data_aug_conf_{modality_name}", modal_setting['data_aug_conf'])
                 else:
                     raise("Not support this type of sensor")
 
@@ -139,7 +142,7 @@ def getIntermediateheterFusionDataset(cls):
             sensor_type = self.sensor_type_dict[modality_name]
 
             # lidar
-            if sensor_type == "lidar" or self.visualize:
+            if sensor_type in ("lidar", "lidar_camera") or self.visualize:
                 # process lidar
                 lidar_np = selected_cav_base['lidar_np']
                 lidar_np = shuffle_points(lidar_np)
@@ -168,7 +171,7 @@ def getIntermediateheterFusionDataset(cls):
                     processed_lidar_proj = eval(f"self.pre_processor_{modality_name}").preprocess(lidar_proj_np)
                     selected_cav_processed.update({f'processed_features_{modality_name}_proj': processed_lidar_proj})
 
-                if sensor_type == "lidar":
+                if sensor_type in ("lidar", "lidar_camera"):
                     processed_lidar = eval(f"self.pre_processor_{modality_name}").preprocess(lidar_np)
                     selected_cav_processed.update({f'processed_features_{modality_name}': processed_lidar})
 
@@ -185,7 +188,7 @@ def getIntermediateheterFusionDataset(cls):
                                 "single_object_bbx_mask": object_bbx_mask})
 
             # camera
-            if sensor_type == "camera":
+            if sensor_type in ("camera", "lidar_camera"):
                 camera_data_list = selected_cav_base["camera_data"]
                 params = selected_cav_base["params"]
                 imgs = []
@@ -290,6 +293,13 @@ def getIntermediateheterFusionDataset(cls):
         def __getitem__(self, idx):
             base_data_dict = self.retrieve_base_data(idx)
             base_data_dict = add_noise_data_dict(base_data_dict,self.params['noise_setting'])
+
+            # Skip samples where a required sensor's data is unavailable
+            for cav_content in base_data_dict.values():
+                modality_name = cav_content.get('modality_name', '')
+                sensor_type = self.sensor_type_dict.get(modality_name, '')
+                if sensor_type in ('camera', 'lidar_camera') and cav_content.get('camera_data') is None:
+                    return None
 
             processed_data_dict = OrderedDict()
             processed_data_dict['ego'] = {}
@@ -418,7 +428,11 @@ def getIntermediateheterFusionDataset(cls):
 
                 # dynamic object center generator! for heterogeneous input
                 if not self.visualize:
-                    self.generate_object_center = eval(f"self.generate_object_center_{sensor_type}")
+                    # Is this ok for lidar_camera? To use lidar as center
+                    if sensor_type == "lidar_camera":
+                        self.generate_object_center = self.generate_object_center_lidar
+                    else:
+                        self.generate_object_center = eval(f"self.generate_object_center_{sensor_type}")
                 # need discussion. In test phase, use lidar label.
                 else: 
                     self.generate_object_center = self.generate_object_center_lidar
@@ -435,6 +449,11 @@ def getIntermediateheterFusionDataset(cls):
                     eval(f"input_list_{modality_name}").append(selected_cav_processed[f"processed_features_{modality_name}"])
                 elif sensor_type == "camera":
                     eval(f"input_list_{modality_name}").append(selected_cav_processed[f"image_inputs_{modality_name}"])
+                elif sensor_type == "lidar_camera":
+                    eval(f"input_list_{modality_name}").append({
+                        'lidar': selected_cav_processed[f"processed_features_{modality_name}"],
+                        'camera': selected_cav_processed[f"image_inputs_{modality_name}"],
+                    })
                 else:
                     raise
                 
@@ -511,11 +530,16 @@ def getIntermediateheterFusionDataset(cls):
             
             for modality_name in self.modality_name_list:
                 if self.sensor_type_dict[modality_name] == "lidar":
-                    merged_feature_dict = merge_features_to_dict(eval(f"input_list_{modality_name}")) 
+                    merged_feature_dict = merge_features_to_dict(eval(f"input_list_{modality_name}"))
                     processed_data_dict['ego'].update({f'input_{modality_name}': merged_feature_dict}) # maybe None
                 elif self.sensor_type_dict[modality_name] == "camera":
                     merged_image_inputs_dict = merge_features_to_dict(eval(f"input_list_{modality_name}"), merge='stack')
                     processed_data_dict['ego'].update({f'input_{modality_name}': merged_image_inputs_dict}) # maybe None
+                elif self.sensor_type_dict[modality_name] == "lidar_camera":
+                    input_list = eval(f"input_list_{modality_name}")
+                    lidar_merged = merge_features_to_dict([x['lidar'] for x in input_list])
+                    cam_merged = merge_features_to_dict([x['camera'] for x in input_list], merge='stack')
+                    processed_data_dict['ego'].update({f'input_{modality_name}': {'lidar': lidar_merged, 'camera': cam_merged}})
 
             if self.kd_flag:
                 # heterogenous setting do not support DiscoNet's kd
@@ -655,6 +679,13 @@ def getIntermediateheterFusionDataset(cls):
                     elif self.sensor_type_dict[modality_name] == "camera":
                         merged_image_inputs_dict = merge_features_to_dict(eval(f"inputs_list_{modality_name}"), merge='cat')
                         output_dict['ego'].update({f'inputs_{modality_name}': merged_image_inputs_dict})
+
+                    elif self.sensor_type_dict[modality_name] == "lidar_camera":
+                        inputs_list = eval(f"inputs_list_{modality_name}")
+                        lidar_merged = merge_features_to_dict([x['lidar'] for x in inputs_list])
+                        cam_merged = merge_features_to_dict([x['camera'] for x in inputs_list], merge='cat')
+                        lidar_torch = eval(f"self.pre_processor_{modality_name}").collate_batch(lidar_merged)
+                        output_dict['ego'].update({f'inputs_{modality_name}': {'lidar': lidar_torch, 'camera': cam_merged}})
 
 
             output_dict['ego'].update({"agent_modality_list": agent_modality_list})

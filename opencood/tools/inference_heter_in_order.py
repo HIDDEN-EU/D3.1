@@ -185,9 +185,9 @@ def main():
                                     cpu_only=True)
             
         print("Using Subset of DATASET!")
-        opencood_dataset_subset = Subset(opencood_dataset, range(1200,1305))
-        data_loader = DataLoader(opencood_dataset_subset,
-        # data_loader = DataLoader(opencood_dataset,
+        # opencood_dataset_subset = Subset(opencood_dataset, range(1200,1305))
+        # data_loader = DataLoader(opencood_dataset_subset,
+        data_loader = DataLoader(opencood_dataset,
                                 batch_size=1,
                                 num_workers=4,
                                 collate_fn=opencood_dataset.collate_batch_test,

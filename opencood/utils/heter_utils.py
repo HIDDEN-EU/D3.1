@@ -42,6 +42,9 @@ class Adaptor:
             random.shuffle(cav_list)
             return cav_list
 
+        if self.modality_assignment is None or scenario_name not in self.modality_assignment:
+            return cav_list
+
         assignment = self.modality_assignment[scenario_name]
         if assignment[cav_list[0]] not in self.ego_modality:
             ego_cav = None

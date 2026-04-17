@@ -71,9 +71,10 @@ class OPV2VBaseDataset(Dataset):
             self.params['noise_setting']['add_noise'] = False
 
         # first load all paths of different scenarios
+        # GPAN: removed specific scenario to train the lidar_camera model (in the specific scenario one camera is missing)
         scenario_folders = sorted([os.path.join(root_dir, x)
                                    for x in os.listdir(root_dir) if
-                                   os.path.isdir(os.path.join(root_dir, x))])
+                                   os.path.isdir(os.path.join(root_dir, x)) and '2021_09_09_13_20_58' not in x])
         
         self.scenario_folders = scenario_folders
         self.reinitialize()
@@ -163,7 +164,12 @@ class OPV2VBaseDataset(Dataset):
                     if getattr(self, "heterogeneous", False):
                         scenario_name = scenario_folder.split("/")[-1]
 
-                        cav_modality = self.adaptor.reassign_cav_modality(self.modality_assignment[scenario_name][cav_id] , j)
+                        if self.modality_assignment is not None and scenario_name in self.modality_assignment:
+                            src_modality = self.modality_assignment[scenario_name].get(
+                                cav_id, list(self.adaptor.mapping_dict.keys())[0])
+                        else:
+                            src_modality = list(self.adaptor.mapping_dict.keys())[0]
+                        cav_modality = self.adaptor.reassign_cav_modality(src_modality, j)
 
                         self.scenario_database[i][cav_id][timestamp]['modality_name'] = cav_modality
 

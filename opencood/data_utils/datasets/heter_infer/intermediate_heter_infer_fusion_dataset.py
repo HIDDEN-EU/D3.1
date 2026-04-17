@@ -56,7 +56,7 @@ def getIntermediateheterinferFusionDataset(cls):
             # e.g. 2, and self.max_cav = 5
             # we will use 5 cav to generate gt boxes, but only use 2 cav to do the fusion.
             self.sensor_type_dict = {
-                'm1': 'lidar',
+                'm1': 'lidar_camera',
                 'm2': 'camera',
                 'm3': 'lidar',
                 'm4': 'camera',
@@ -218,6 +218,11 @@ def getIntermediateheterinferFusionDataset(cls):
                     eval(f"input_list_{modality_name}").append(selected_cav_processed[f"processed_features_{modality_name}"])
                 elif sensor_type == "camera":
                     eval(f"input_list_{modality_name}").append(selected_cav_processed[f"image_inputs_{modality_name}"])
+                elif sensor_type == "lidar_camera":
+                    eval(f"input_list_{modality_name}").append({
+                        'lidar': selected_cav_processed[f"processed_features_{modality_name}"],
+                        'camera': selected_cav_processed[f"image_inputs_{modality_name}"],
+                    })
                 else:
                     raise
                 
@@ -307,6 +312,12 @@ def getIntermediateheterinferFusionDataset(cls):
                 elif self.sensor_type_dict[modality_name] == "camera":
                     merged_image_inputs_dict = merge_features_to_dict(eval(f"input_list_{modality_name}"), merge='stack')
                     processed_data_dict['ego'].update({f'input_{modality_name}': merged_image_inputs_dict}) # maybe None
+                elif self.sensor_type_dict[modality_name] == "lidar_camera":
+                    input_list = eval(f"input_list_{modality_name}")
+                    lidar_merged = merge_features_to_dict([x['lidar'] for x in input_list])
+                    cam_merged = merge_features_to_dict([x['camera'] for x in input_list], merge='stack')
+                    processed_data_dict['ego'].update({f'input_{modality_name}': {'lidar': lidar_merged, 'camera': cam_merged}})
+
 
             processed_data_dict['ego'].update({'agent_modality_list': agent_modality_list})
 
