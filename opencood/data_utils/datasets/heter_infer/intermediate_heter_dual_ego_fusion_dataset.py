@@ -4,16 +4,22 @@ Author: George Panaretou
 Dual-ego heterogeneous inference dataset.
 
 Instead of assigning different modalities to different physical vehicles,
-the ego vehicle is presented as TWO virtual agents:
-  - Agent 0: ego with lidar (m1)
-  - Agent 1: ego with camera (m2)  [only when use_cav >= 2]
+each physical car is presented as TWO virtual agents:
+  - Agent (2i):   car_i with its lidar modality  (derived from sensor_type_dict)
+  - Agent (2i+1): car_i with its camera modality (derived from sensor_type_dict)
 
 GT boxes are still collected from all real vehicles in the scene.
-The pairwise transformation matrix between the two virtual agents is identity
-(same physical vehicle, same pose).
+The pairwise transformation between the two virtual agents of the same car is
+identity (same physical vehicle, same pose); between cars it is the real transform.
 
-use_cav = 1: single-modality ego (lidar only)
-use_cav = 2: dual-modality ego (lidar + camera)
+use_cav controls the number of *physical cars* that contribute sensors:
+  use_cav = 1  →  2 virtual agents  (ego lidar + ego camera)
+  use_cav = 2  →  4 virtual agents  (ego lidar/camera + car2 lidar/camera)
+  use_cav = N  →  2N virtual agents (N cars × lidar + camera)
+  max use_cav  =  4
+
+NOTE: max_cav in the hypes yaml must be >= 2*use_cav (e.g. 8 for use_cav=4),
+otherwise pairwise_t_matrix will silently truncate agents.
 '''
 
 import copy
@@ -37,22 +43,20 @@ def getIntermediateheterdualegoinferFusionDataset(cls):
 
     class Intermediate_heter_Dual_Ego_Infer_Fusion_Dataset(Intermediate_heter_Infer_Fusion_Dataset):
         """
-        Ego vehicle is presented as two virtual agents sharing the same pose:
-          - Agent 0: lidar modality (m1)
-          - Agent 1: camera modality (m2)
-
+        Each physical car contributes two virtual agents (lidar + camera).
         GT boxes are collected from all real vehicles (unchanged from parent).
-        Only the ego's sensors contribute to the collaborative feature extraction.
+        Modality names are derived from sensor_type_dict — not hardcoded.
         """
 
         def __init__(self, params, visualize, train=True):
             super().__init__(params, visualize, train)
-            assert self.sensor_type_dict.get('m1') == 'lidar', \
-                "m1 must be lidar for dual-ego mode (check modality_setting in hypes)"
-            assert self.sensor_type_dict.get('m2') == 'camera', \
-                "m2 must be camera for dual-ego mode (check modality_setting in hypes)"
-            print("\nDual-Ego Mode: Agent 0 = ego lidar (m1), Agent 1 = ego camera (m2)")
-            print(f"use_cav={self.use_cav}: {'lidar+camera' if self.use_cav >= 2 else 'lidar only'}\n")
+            # Derive lidar/camera modality names from sensor_type_dict
+            self._lidar_mod  = next(m for m, t in self.sensor_type_dict.items() if t == 'lidar')
+            self._camera_mod = next(m for m, t in self.sensor_type_dict.items() if t == 'camera')
+            assert self._lidar_mod is not None, "No lidar modality found in sensor_type_dict"
+            assert self._camera_mod is not None, "No camera modality found in sensor_type_dict"
+            print(f"\nDual-Ego Mode: lidar_mod={self._lidar_mod}, camera_mod={self._camera_mod}")
+            print(f"use_cav={self.use_cav}: {self.use_cav} physical car(s), {self.use_cav*2} virtual agents\n")
 
         def __getitem__(self, idx):
             base_data_dict = self.retrieve_base_data(idx)
@@ -77,6 +81,9 @@ def getIntermediateheterdualegoinferFusionDataset(cls):
                 "The first element in the OrderedDict must be ego"
             assert ego_id != -1
             assert len(ego_lidar_pose) > 0
+
+            lidar_mod  = self._lidar_mod
+            camera_mod = self._camera_mod
 
             input_list_m1 = []
             input_list_m2 = []
@@ -153,35 +160,46 @@ def getIntermediateheterdualegoinferFusionDataset(cls):
                     ego_lidar_pose = ego_cav_base['params']['lidar_pose']
 
             # ---------------------------------------------------------------
-            # Virtual dual-ego agent count: at most 2 (lidar + camera)
+            # Select physical cars to contribute sensors: up to use_cav cars
+            # in cav_id_list order (ego is always first).
             # ---------------------------------------------------------------
-            cav_num = min(self.use_cav, 2)
+            physical_cars = []
+            for cid in cav_id_list:
+                physical_cars.append(cid)
+                if len(physical_cars) >= self.use_cav:
+                    break
+
+            cav_num = len(physical_cars) * 2  # two virtual agents per physical car
 
             # ---------------------------------------------------------------
-            # pairwise_t_matrix: build a fake dict where ego appears cav_num
-            # times (same pose => identity transformation between agents).
+            # pairwise_t_matrix: each physical car appears twice with same pose
+            # (identity between its two virtual agents; real transform between cars).
             # ---------------------------------------------------------------
             fake_data_dict = OrderedDict()
-            fake_data_dict[ego_id] = base_data_dict[ego_id]          # agent 0: ego lidar
-            if cav_num >= 2:
-                fake_data_dict['ego_cam'] = base_data_dict[ego_id]   # agent 1: ego camera (same pose)
+            for cid in physical_cars:
+                fake_data_dict[cid]          = base_data_dict[cid]   # lidar virtual agent
+                fake_data_dict[f'{cid}_cam'] = base_data_dict[cid]   # camera virtual agent
 
+            
             pairwise_t_matrix = get_pairwise_transformation(
                 fake_data_dict, self.max_cav, self.proj_first
             )
 
             # ---------------------------------------------------------------
-            # lidar_poses: ego pose repeated cav_num times (both agents share
-            # the same physical location).
+            # lidar_poses: each physical car's pose repeated twice.
             # ---------------------------------------------------------------
-            ego_pose = base_data_dict[ego_id]['params']['lidar_pose']
-            ego_pose_clean = base_data_dict[ego_id]['params']['lidar_pose_clean']
-            lidar_poses = np.array([ego_pose] * cav_num).reshape(-1, 6)
-            lidar_poses_clean = np.array([ego_pose_clean] * cav_num).reshape(-1, 6)
+            lidar_poses_list = []
+            lidar_poses_clean_list = []
+            for cid in physical_cars:
+                pose       = base_data_dict[cid]['params']['lidar_pose']
+                pose_clean = base_data_dict[cid]['params']['lidar_pose_clean']
+                lidar_poses_list       += [pose, pose]
+                lidar_poses_clean_list += [pose_clean, pose_clean]
+            lidar_poses       = np.array(lidar_poses_list).reshape(-1, 6)
+            lidar_poses_clean = np.array(lidar_poses_clean_list).reshape(-1, 6)
 
             # ---------------------------------------------------------------
             # GT box collection from ALL real agents in cav_id_list.
-            # Each real vehicle contributes its detected objects to the scene GT.
             # ---------------------------------------------------------------
             for _i, cav_id in enumerate(cav_id_list):
                 selected_cav_base = base_data_dict[cav_id]
@@ -199,41 +217,57 @@ def getIntermediateheterdualegoinferFusionDataset(cls):
                 object_id_stack += object_ids
 
             # ---------------------------------------------------------------
-            # Feature extraction: ego as m1 (lidar) — always Agent 0
+            # Feature extraction: for each physical car, process as lidar then camera.
+            # Follows the same eval(f"input_list_{modality_name}") pattern as parent.
             # ---------------------------------------------------------------
-            self.generate_object_center = self.generate_object_center_lidar
-            ego_as_m1 = {**ego_cav_base, 'modality_name': 'm1'}
-            processed_m1 = self.get_item_single_car(ego_as_m1, ego_cav_base)
+            for cid in physical_cars:
+                cav_base = base_data_dict[cid]
 
-            input_list_m1.append(processed_m1['processed_features_m1'])
-            agent_modality_list.append('m1')
+                # --- lidar virtual agent ---
+                self.generate_object_center = self.generate_object_center_lidar
+                cav_as_lidar = {**cav_base, 'modality_name': lidar_mod}
 
-            if self.visualize or self.kd_flag:
-                projected_lidar_stack.append(processed_m1['projected_lidar'])
+                if cid == ego_id and self.params.get('lidar_corrupt', {}).get('enabled', False):
+                    ratio = self.params['lidar_corrupt']['dropout_ratio']
+                    lidar = cav_as_lidar['lidar_np']
+                    keep = np.random.rand(len(lidar)) > ratio
+                    cav_as_lidar['lidar_np'] = lidar[keep]
 
-            if self.supervise_single or self.heterogeneous:
-                single_label_list.append(processed_m1['single_label_dict'])
-                single_object_bbx_center_list.append(processed_m1['single_object_bbx_center'])
-                single_object_bbx_mask_list.append(processed_m1['single_object_bbx_mask'])
-
-            # ---------------------------------------------------------------
-            # Feature extraction: ego as m2 (camera) — Agent 1 (if use_cav>=2)
-            # ---------------------------------------------------------------
-            if cav_num >= 2:
-                self.generate_object_center = self.generate_object_center_camera
-                ego_as_m2 = {**ego_cav_base, 'modality_name': 'm2'}
-                processed_m2 = self.get_item_single_car(ego_as_m2, ego_cav_base)
-
-                input_list_m2.append(processed_m2['image_inputs_m2'])
-                agent_modality_list.append('m2')
+                processed_lidar = self.get_item_single_car(cav_as_lidar, ego_cav_base)
+                eval(f"input_list_{lidar_mod}").append(
+                    processed_lidar[f"processed_features_{lidar_mod}"]
+                )
+                agent_modality_list.append(lidar_mod)
 
                 if self.visualize or self.kd_flag:
-                    projected_lidar_stack.append(processed_m2['projected_lidar'])
+                    projected_lidar_stack.append(processed_lidar['projected_lidar'])
 
                 if self.supervise_single or self.heterogeneous:
-                    single_label_list.append(processed_m2['single_label_dict'])
-                    single_object_bbx_center_list.append(processed_m2['single_object_bbx_center'])
-                    single_object_bbx_mask_list.append(processed_m2['single_object_bbx_mask'])
+                    single_label_list.append(processed_lidar['single_label_dict'])
+                    single_object_bbx_center_list.append(processed_lidar['single_object_bbx_center'])
+                    single_object_bbx_mask_list.append(processed_lidar['single_object_bbx_mask'])
+
+                # --- camera virtual agent ---
+                self.generate_object_center = self.generate_object_center_camera
+
+                # Gpanaretou: force agent sensor modality to m4 since m2 is broken (m2 and m4 are both camera)
+                if camera_mod == 'm2':
+                    camera_mod = 'm4'
+
+                cav_as_camera = {**cav_base, 'modality_name': camera_mod}
+                processed_camera = self.get_item_single_car(cav_as_camera, ego_cav_base)
+                eval(f"input_list_{camera_mod}").append(
+                    processed_camera[f"image_inputs_{camera_mod}"]
+                )
+                agent_modality_list.append(camera_mod)
+
+                if self.visualize or self.kd_flag:
+                    projected_lidar_stack.append(processed_camera['projected_lidar'])
+
+                if self.supervise_single or self.heterogeneous:
+                    single_label_list.append(processed_camera['single_label_dict'])
+                    single_object_bbx_center_list.append(processed_camera['single_object_bbx_center'])
+                    single_object_bbx_mask_list.append(processed_camera['single_object_bbx_mask'])
 
             # ---------------------------------------------------------------
             # Single-view supervision labels

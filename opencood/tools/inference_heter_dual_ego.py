@@ -4,16 +4,15 @@ Author: George Panaretou
 
 Dual-ego heterogeneous inference.
 
-The ego vehicle is treated as TWO virtual agents sharing the same pose:
-  - Agent 0: ego lidar   (m1)
-  - Agent 1: ego camera  (m2)  [only when use_cav=2]
+Each physical car is treated as TWO virtual agents sharing the same pose:
+  - Agent (2i):   car_i lidar   (derived from sensor_type_dict)
+  - Agent (2i+1): car_i camera  (derived from sensor_type_dict)
 
 GT boxes are collected from ALL real vehicles in the scene, so the
-evaluation reflects full-scene coverage even though only the ego's
-sensors contribute to the collaborative feature extraction.
+evaluation reflects full-scene coverage.
 
-use_cav=1  →  single-modality ego (lidar only, baseline)
-use_cav=2  →  dual-modality ego   (lidar + camera fusion)
+use_cav=N  →  N physical cars, each contributing lidar + camera (2N virtual agents)
+Max use_cav = 4.
 
 Example command (intermediate fusion):
     python opencood/tools/inference_heter_dual_ego.py \
@@ -56,7 +55,7 @@ def test_parser():
     parser.add_argument('--no_score', action='store_true',
                         help="Do not include prediction scores in result dict")
     parser.add_argument('--use_cav', type=str, default="[1,2]",
-                        help="1=lidar-only ego, 2=lidar+camera dual ego")
+                        help="Number of physical cars (each provides lidar+camera). Max 4. E.g. '[1,2]'")
     parser.add_argument('--note', default="", type=str, help="Optional suffix appended to output filenames")
     opt = parser.parse_args()
     return opt
@@ -90,7 +89,7 @@ def main():
         hypes = update_dict(hypes, {
             "mapping_dict": {
                 "m1": "m1",
-                "m2": "m2",
+                "m2": "m4",
                 "m3": "m3",
                 "m4": "m4"
             }
@@ -146,8 +145,8 @@ def main():
     hypes = update_dict(hypes, {"ego_modality": 'm1'})
 
     use_cav_list = eval(opt.use_cav)
-    # Clamp to valid range for dual ego (1 = lidar only, 2 = lidar + camera)
-    use_cav_list = [min(max(int(v), 1), 2) for v in use_cav_list]
+    # Clamp to valid range (1 = ego only, 4 = max physical cars)
+    use_cav_list = [min(max(int(v), 1), 4) for v in use_cav_list]
     use_cav_list = sorted(set(use_cav_list))  # deduplicate
 
     for use_cav in use_cav_list:
@@ -155,6 +154,7 @@ def main():
 
         print('Building Dataset')
         opencood_dataset = build_dataset(hypes, visualize=True, train=False)
+        opencood_dataset.max_cav = 8
         data_loader = DataLoader(
             opencood_dataset,
             batch_size=1,
@@ -171,7 +171,7 @@ def main():
             0.7: {'tp': [], 'fp': [], 'gt': 0, 'score': []},
         }
 
-        modality_label = 'lidar_only' if use_cav == 1 else 'lidar_camera'
+        modality_label = f'{use_cav}car_lidar_camera'
         infer_info = opt.fusion_method + opt.note + f"_dual_ego_{modality_label}"
 
         for i, batch_data in enumerate(data_loader):
