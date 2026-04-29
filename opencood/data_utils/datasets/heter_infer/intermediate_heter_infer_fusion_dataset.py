@@ -53,10 +53,11 @@ def getIntermediateheterinferFusionDataset(cls):
         def __init__(self, params, visualize, train=True):
             super().__init__(params, visualize, train)
             self.use_cav = params['use_cav']
+            self.force_all_same_agent_modality = False
             # e.g. 2, and self.max_cav = 5
             # we will use 5 cav to generate gt boxes, but only use 2 cav to do the fusion.
             self.sensor_type_dict = {
-                'm1': 'lidar_camera',
+                'm1': 'lidar',
                 'm2': 'camera',
                 'm3': 'lidar',
                 'm4': 'camera',
@@ -121,6 +122,12 @@ def getIntermediateheterinferFusionDataset(cls):
                                         'lidar_pose'][1] - ego_lidar_pose[
                                         1]) ** 2)
 
+                if self.params.get('lidar_corrupt', False).get('enabled', False):
+                    ratio = self.params['lidar_corrupt']['dropout_ratio']
+                    lidar = selected_cav_base['lidar_np']
+                    keep = np.random.rand(len(lidar)) > ratio
+                    selected_cav_base['lidar_np'] = lidar[keep]
+                
                 # if distance is too far, we will just skip this agent
                 if distance > self.params['comm_range']:
                     exclude_agent.append(cav_id)

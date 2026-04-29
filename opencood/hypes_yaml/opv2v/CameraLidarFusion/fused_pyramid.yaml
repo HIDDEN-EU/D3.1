@@ -133,7 +133,7 @@ model:
         img_features: &img_feature 64
         use_depth_gt: false
         depth_supervision: true
-        camera_encoder: EfficientNet
+        camera_encoder: Resnet101
 
       camera_mask_args:
         cav_lidar_range: *cav_lidar

@@ -58,6 +58,7 @@ def test_parser():
     parser.add_argument('--measure_perf', action='store_true',
                         help='measure inference FPS and peak GPU memory, '
                              'save results to model_dir')
+    parser.add_argument("--dataset_subset", type=bool, default=False, help="whether to use subset for dataset eval")
     opt = parser.parse_args()
     return opt
 
@@ -90,7 +91,7 @@ def main():
         hypes = update_dict(hypes, {
             "mapping_dict": {
                 "m1": "m1",
-                "m2": "m2",
+                "m2": "m4",
                 "m3": "m3",
                 "m4": "m4"
             }
@@ -183,10 +184,13 @@ def main():
         if opt.measure_perf:
             profiler.patch_callable(opencood_dataset, 'post_process', 'post_process',
                                     cpu_only=True)
-            
-        print("Using Subset of DATASET!")
-        # opencood_dataset_subset = Subset(opencood_dataset, range(1200,1305))
-        # data_loader = DataLoader(opencood_dataset_subset,
+        
+
+        opencood_dataset.force_all_same_agent_modality = True
+        if opt.dataset_subset:
+            print("Using Subset of DATASET!")
+            opencood_dataset = Subset(opencood_dataset, range(1200,1305))
+
         data_loader = DataLoader(opencood_dataset,
                                 batch_size=1,
                                 num_workers=4,
