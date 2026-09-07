@@ -91,48 +91,20 @@ HEAL/dataset
 
 
 ## Installation
-### Step 1: Basic Installation
 ```bash
-conda create -n heal python=3.8
-conda activate heal
-# install pytorch. 
-conda create -n coalign python=3.8 pytorch==1.12.0 torchvision==0.13.0 torchaudio==0.12.0 cudatoolkit=11.6 -c pytorch -c conda-forge
-# install dependency
+conda create -n iccv python=3.8
+conda install cudatoolkit=11.7 -c pytorch -c conda-forge
+pip install torch==1.13.0 torchvision==0.14.0 torchaudio==0.13.0 spconv-cu117
+
+# install dependencies
 pip install -r requirements.txt
-# install this project. It's OK if EasyInstallDeprecationWarning shows up.
 python setup.py develop
-```
 
-
-### Step 2: Install Spconv (1.2.1 or 2.x)
-We use spconv 1.2.1 or spconv 2.x to generate voxel features. spconv 2.x has much convenient installation, but our checkpoints are stored in spconv 1.2.1 and they are not compatible.
-
-To install **spconv 2.x**, check the [table](https://github.com/traveller59/spconv#spconv-spatially-sparse-convolution-library) to run the installation command. For example we have cudatoolkit 11.6, then we should run
-```bash
-pip install spconv-cu116 # match your cudatoolkit version
-```
-
-To install **spconv 1.2.1**, please follow the guide in https://github.com/traveller59/spconv/tree/v1.2.1.
-You can also get a detailed installation guide in [CoAlign Installation Doc](https://udtkdfu8mk.feishu.cn/docx/LlMpdu3pNoCS94xxhjMcOWIynie#doxcn5rISC6NcfXIUnWFnXhTEzd).
-
-
-### Step 3: Bbx IoU cuda version compile
-Install bbx nms calculation cuda version
-  
-```bash
+# build nms cuda version
 python opencood/utils/setup.py build_ext --inplace
 ```
 
-### Step 4: Dependencies for FPV-RCNN (optional)
-Install the dependencies for fpv-rcnn.
-  
-```bash
-cd HEAL
-python opencood/pcdet_utils/setup.py build_ext --inplace
-```
-
-
----
+## Dataset
 To align with our agent-type assignment in our experiments, please make a copy of the assignment file under the logs folder
 ```bash
 # in HEAL directory

@@ -39,22 +39,27 @@ def main():
                                               visualize=False,
                                               train=False)
 
+    # num_workers is opt-in per config (train_params.num_workers); default 0
+    # keeps every other config's behaviour unchanged.
+    num_workers = hypes['train_params'].get('num_workers', 0)
+    loader_kwargs = {'prefetch_factor': 2} if num_workers > 0 else {}
+
     train_loader = DataLoader(opencood_train_dataset,
                               batch_size=hypes['train_params']['batch_size'],
-                              num_workers=0,
+                              num_workers=num_workers,
                               collate_fn=opencood_train_dataset.collate_batch_train,
                               shuffle=True,
                               pin_memory=True,
                               drop_last=True,
-                              prefetch_factor=2)
+                              **loader_kwargs)
     val_loader = DataLoader(opencood_validate_dataset,
                             batch_size=hypes['train_params']['batch_size'],
-                            num_workers=0,
+                            num_workers=num_workers,
                             collate_fn=opencood_train_dataset.collate_batch_train,
                             shuffle=True,
                             pin_memory=True,
                             drop_last=True,
-                            prefetch_factor=2)
+                            **loader_kwargs)
 
     print('Creating Model')
     model = train_utils.create_model(hypes)

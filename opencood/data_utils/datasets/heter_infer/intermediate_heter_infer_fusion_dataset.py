@@ -56,12 +56,16 @@ def getIntermediateheterinferFusionDataset(cls):
             self.force_all_same_agent_modality = False
             # e.g. 2, and self.max_cav = 5
             # we will use 5 cav to generate gt boxes, but only use 2 cav to do the fusion.
-            self.sensor_type_dict = {
-                'm1': 'lidar',
-                'm2': 'camera',
-                'm3': 'lidar',
-                'm4': 'camera',
-            }
+            #
+            # self.sensor_type_dict was already populated by the parent from
+            # params['heter']['modality_setting'] (so it honours configs that
+            # declare e.g. m1='lidar_camera'). Only fill in the legacy HEAL
+            # layout for modality keys the config does not define -- for the
+            # standard m1=lidar/m2=camera/m3=lidar/m4=camera configs this is a
+            # no-op and behaviour is unchanged.
+            for _k, _v in {'m1': 'lidar', 'm2': 'camera',
+                           'm3': 'lidar', 'm4': 'camera'}.items():
+                self.sensor_type_dict.setdefault(_k, _v)
             print("\n\nCaution: make sure your sensor type is consistent with:")
             print(self.sensor_type_dict)
             print("Otherwise, modify it in opencood/data_utils/datasets/heter_infer/intermediate_heter_infer_fusion_dataset.py\n\n")
@@ -122,7 +126,7 @@ def getIntermediateheterinferFusionDataset(cls):
                                         'lidar_pose'][1] - ego_lidar_pose[
                                         1]) ** 2)
 
-                if self.params.get('lidar_corrupt', False).get('enabled', False):
+                if (self.params.get('lidar_corrupt') or {}).get('enabled', False):
                     ratio = self.params['lidar_corrupt']['dropout_ratio']
                     lidar = selected_cav_base['lidar_np']
                     keep = np.random.rand(len(lidar)) > ratio
@@ -201,9 +205,12 @@ def getIntermediateheterinferFusionDataset(cls):
 
                 # dynamic object center generator! for heterogeneous input
                 if not self.visualize:
-                    self.generate_object_center = eval(f"self.generate_object_center_{sensor_type}")
+                    if sensor_type == "lidar_camera":
+                        self.generate_object_center = self.generate_object_center_lidar
+                    else:
+                        self.generate_object_center = eval(f"self.generate_object_center_{sensor_type}")
                 # need discussion. In test phase, use lidar label.
-                else: 
+                else:
                     self.generate_object_center = self.generate_object_center_lidar
 
                 object_bbx_center, object_bbx_mask, object_ids = self.generate_object_center([selected_cav_base],

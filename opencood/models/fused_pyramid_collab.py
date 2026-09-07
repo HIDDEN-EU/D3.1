@@ -18,7 +18,7 @@ from opencood.models.sub_modules.naive_compress import NaiveCompressor
 from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
 from opencood.models.heter_encoders import PointPillar, LiftSplatShoot
 from opencood.utils.transformation_utils import normalize_pairwise_tfm
-from opencood.utils.model_utils import check_trainable_module
+from opencood.utils.model_utils import check_trainable_module, fix_bn
 
 
 class FusedPyramidCollab(nn.Module):
@@ -120,7 +120,42 @@ class FusedPyramidCollab(nn.Module):
                 args['compressor']['compress_ratio'],
             )
 
+        # ------------------------------------------------------------------
+        # Optional weight freezing (HEAL-style staged training).
+        #
+        # When this model is initialised from a pretrained HEAL stage1 lidar
+        # collaboration base (heter_pyramid_collab / m1), we usually want to
+        # keep that collaboration base fixed and only train the new per-agent
+        # lidar+camera fused encoder so its output stays compatible with the
+        # already-trained PyramidFusion + detection heads.
+        #
+        #   freeze_collab_base   -> pyramid_backbone, shrink_conv, {cls,reg,dir}_head
+        #   freeze_lidar_encoder -> encoder_lidar_{m}, backbone_{m}
+        # ------------------------------------------------------------------
+        self.fix_modules = []
+        if args.get('freeze_collab_base', False):
+            self.fix_modules += ['pyramid_backbone', 'cls_head', 'reg_head', 'dir_head']
+            if self.shrink_flag:
+                self.fix_modules.append('shrink_conv')
+        if args.get('freeze_lidar_encoder', False):
+            for modality_name in self.modality_name_list:
+                self.fix_modules += [f'encoder_lidar_{modality_name}',
+                                     f'backbone_{modality_name}']
+
+        self.model_train_init()
         check_trainable_module(self)
+
+    def model_train_init(self):
+        """Freeze the modules listed in ``self.fix_modules`` (params + BN stats).
+
+        ``train.py`` calls this once per epoch after ``model.train()`` so the
+        frozen sub-modules never re-enter training mode.
+        """
+        for module_name in self.fix_modules:
+            module = getattr(self, module_name)
+            for p in module.parameters():
+                p.requires_grad_(False)
+            module.apply(fix_bn)
 
     # ------------------------------------------------------------------
     # Helper: forward a single modality through both encoders
