@@ -12,7 +12,7 @@ from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbo
 from opencood.models.sub_modules.feature_alignnet import AlignNet
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
 from opencood.models.sub_modules.naive_compress import NaiveCompressor
-from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
+from opencood.models.fuse_modules.levy_pyramid_fuse import LevyPyramidFusion
 from opencood.utils.transformation_utils import normalize_pairwise_tfm
 from opencood.utils.model_utils import check_trainable_module, fix_bn, unfix_bn
 import importlib
@@ -85,7 +85,7 @@ class HeterPyramidCollab(nn.Module):
         Fusion, by default multiscale fusion: 
         Note the input of PyramidFusion has downsampled 2x. (SECOND required)
         """
-        self.pyramid_backbone = PyramidFusion(args['fusion_backbone'])
+        self.pyramid_backbone = LevyPyramidFusion(args['fusion_backbone'])
 
 
         """
@@ -184,12 +184,13 @@ class HeterPyramidCollab(nn.Module):
         # heter_feature_2d is downsampled 2x
         # add croping information to collaboration module
         
-        fused_feature, occ_outputs = self.pyramid_backbone.forward_collab(
+        fused_feature, occ_outputs, levy_uncertainty = self.pyramid_backbone.forward_collab(
                                                 heter_feature_2d,
                                                 record_len, 
                                                 affine_matrix, 
                                                 agent_modality_list, 
-                                                self.cam_crop_info
+                                                self.cam_crop_info,
+                                                return_uncertainty=True
                                             )
 
         if self.shrink_flag:
@@ -205,5 +206,10 @@ class HeterPyramidCollab(nn.Module):
         
         output_dict.update({'occ_single_list': 
                             occ_outputs})
+
+        # Levy spatial trust map: 'evidence', 'disagreement', 'sigma',
+        # 'sigma_calibrated' at level-0 BEV resolution, plus 'per_scale'.
+        # Diagnostic only -- detached by default, no effect on the loss.
+        output_dict.update({'levy_uncertainty': levy_uncertainty})
 
         return output_dict
