@@ -449,8 +449,9 @@ def visualize_levy_uncertainty(levy_uncertainty, pc_range, save_path,
     infer_result : dict, optional
         Carries 'gt_box_tensor' / 'pred_box_tensor' for the overlay.
     left_hand : bool
-        OPV2V / V2XSet are left-hand (CARLA); flip y so the render matches the
-        BEV lidar visualizations written next to it.
+        OPV2V / V2XSet are left-hand (CARLA). Inverts the y axis so the render
+        matches the BEV lidar visualizations written next to it; the underlying
+        data placement is unaffected.
     """
     if levy_uncertainty is None:
         return
@@ -458,8 +459,11 @@ def visualize_levy_uncertainty(levy_uncertainty, pc_range, save_path,
     from matplotlib import pyplot as plt
 
     x_min, y_min, _, x_max, y_max, _ = [float(v) for v in pc_range]
-    extent = [x_min, x_max, y_max, y_min] if left_hand \
-        else [x_min, x_max, y_min, y_max]
+    # The BEV feature grid is [ny, nx] (point_pillar_scatter.py: "It put y axis
+    # (in lidar frame) as image height"), so row 0 is y_min and column 0 is
+    # x_min. With origin='lower' this extent places the data at its true metric
+    # position -- the same frame the box-centre scatter is drawn in.
+    extent = [x_min, x_max, y_min, y_max]
 
     def box_centers(tensor):
         if tensor is None or tensor.shape[0] == 0:
@@ -493,6 +497,13 @@ def visualize_levy_uncertainty(levy_uncertainty, pc_range, save_path,
         image = ax.imshow(values, origin='lower', extent=extent, aspect='equal',
                           cmap=cmap, vmin=0.0, vmax=vmax)
         fig.colorbar(image, ax=ax, fraction=0.02, pad=0.01)
+
+        # Match the vis_ BEV renders: Canvas_BEV_heading_right leaves y alone for
+        # left-hand data and draws rows downward, so y_min belongs at the top.
+        # Flip the *view*, never the data -- inverting the axis carries the
+        # heatmap and the box overlay together, whereas flipping the extent
+        # would mirror the heatmap out from under the markers.
+        ax.set_ylim(y_max, y_min) if left_hand else ax.set_ylim(y_min, y_max)
 
         if gt_xy is not None:
             ax.scatter(gt_xy[:, 0], gt_xy[:, 1], s=8, facecolors='none',
