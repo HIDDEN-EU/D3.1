@@ -54,7 +54,12 @@ def report_levy_stats(levy_stats, levy_npy_path):
 
     Percentiles are taken within each frame and then averaged over frames, so
     they describe a typical frame rather than the pooled cell distribution.
-    Prints the table and writes it next to the dumped maps as levy_stats.json.
+
+    Two tables are printed. 'grid' covers every cell at least one agent
+    contributes to -- since the ego is warped by the identity, that is its whole
+    BEV extent, so those numbers are dominated by empty road. 'overlap' covers
+    cells with two or more contributing agents, which is the only population
+    where disagreement and sigma are not structurally zero. Read the second one.
     """
     if not levy_stats:
         print("[levy] --save_levy was set but the model emitted no "
@@ -62,31 +67,57 @@ def report_levy_stats(levy_stats, levy_npy_path):
               "(or levy.compute_uncertainty is off) -- nothing was saved.")
         return
 
-    summary = {
-        'frames': len(levy_stats),
-        'observed_frac': float(np.mean([s['observed_frac'] for s in levy_stats])),
-    }
-    for key in inference_utils.LEVY_CHANNELS:
-        per_frame = [s[key] for s in levy_stats if key in s]
-        if not per_frame:
-            continue
-        summary[key] = {stat: float(np.mean([f[stat] for f in per_frame]))
-                        for stat in ('mean', 'p50', 'p90', 'p99', 'max')}
+    def average_block(name):
+        frames = [s[name] for s in levy_stats if s.get(name) is not None]
+        if not frames:
+            return None, 0
+        block = {}
+        for key in inference_utils.LEVY_CHANNELS:
+            rows = [f[key] for f in frames if key in f]
+            if rows:
+                block[key] = {stat: float(np.mean([r[stat] for r in rows]))
+                              for stat in ('mean', 'p50', 'p90', 'p99', 'max')}
+        return block, len(frames)
 
-    print(f"\n[levy] spatial trust map over {summary['frames']} frames "
-          f"(observed cells only, {summary['observed_frac']:.1%} of the BEV grid)")
-    print(f"{'channel':<14}{'mean':>12}{'p50':>12}{'p90':>12}{'p99':>12}{'max':>12}")
-    for key in inference_utils.LEVY_CHANNELS:
-        if key not in summary:
+    coverage = {
+        key: float(np.mean([s['coverage'][key] for s in levy_stats]))
+        for key in ('covered_frac', 'overlap_frac', 'mean_agents')
+    }
+    # The busiest cell anywhere in the split, not an average of per-frame maxima.
+    coverage['max_agents'] = float(np.max([s['coverage']['max_agents']
+                                           for s in levy_stats]))
+    summary = {'frames': len(levy_stats), 'coverage': coverage}
+
+    print(f"\n[levy] spatial trust map over {len(levy_stats)} frames")
+    print(f"[levy] coverage: {coverage['covered_frac']:.1%} of the BEV grid seen "
+          f"by >=1 agent, {coverage['overlap_frac']:.1%} by >=2; "
+          f"{coverage['mean_agents']:.2f} agents per covered cell on average, "
+          f"{coverage['max_agents']:.0f} agents on the busiest cell in the split")
+
+    for name, caption in (('grid', 'all covered cells (>=1 agent)'),
+                          ('overlap', 'overlap only (>=2 agents)')):
+        block, n_frames = average_block(name)
+        summary[name] = block
+        summary[f'{name}_frames'] = n_frames
+        if block is None:
+            print(f"\n  {name}: no frame had any such cell")
             continue
-        row = summary[key]
-        print(f"{key:<14}" + "".join(f"{row[stat]:>12.4g}"
-                                     for stat in ('mean', 'p50', 'p90', 'p99', 'max')))
+        print(f"\n  {name} -- {caption}, {n_frames}/{len(levy_stats)} frames")
+        print(f"  {'channel':<14}{'mean':>12}{'p50':>12}{'p90':>12}"
+              f"{'p99':>12}{'max':>12}")
+        for key in inference_utils.LEVY_CHANNELS:
+            if key not in block:
+                continue
+            row = block[key]
+            print(f"  {key:<14}" + "".join(f"{row[stat]:>12.4g}" for stat in
+                                           ('mean', 'p50', 'p90', 'p99', 'max')))
 
     stats_path = os.path.join(levy_npy_path, 'levy_stats.json')
+    if not os.path.exists(levy_npy_path):
+        os.makedirs(levy_npy_path)
     with open(stats_path, 'w') as f:
         json.dump(summary, f, indent=2)
-    print(f"[levy] per-frame maps in {levy_npy_path}, summary in {stats_path}\n")
+    print(f"\n[levy] per-frame maps in {levy_npy_path}, summary in {stats_path}\n")
 
 
 def main():

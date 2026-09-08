@@ -35,6 +35,13 @@ What we get for free, in the same forward pass:
     evidence      Lambda(s)                                    coverage / visibility
     disagreement  tr Sigma(s) = sum_j p_j ||F_j||^2 - ||F||^2   sensor conflict
     sigma_hat(s)  sqrt(tr Sigma(s) * phi(Lambda(s)))            calibrated scale
+    coverage      #{j : agent j observes s}                     exact agent count
+
+``coverage`` is bookkeeping rather than part of the Levy construction, but it is
+what makes the other three readable: the ego is warped by the identity, so it
+contributes intensity at every cell of its own grid and ``evidence > 0`` is
+therefore true everywhere -- useless as a mask.  Conflict statistics have to be
+conditioned on ``coverage >= 2``, since tr Sigma is identically 0 below that.
 
 with ``phi(Lambda) = E[1{Z>=1}/Z]``, ``Z ~ Poisson(Lambda)`` (Theorem 2, exact
 variance identity).  For ``Lambda >~ 2`` this factorises as
@@ -225,6 +232,12 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
         log Lambda(s), (B, 1, H, W). Log space so that large gamma cannot overflow.
     disagreement : torch.Tensor
         tr Sigma(s) >= 0, (B, 1, H, W).
+    coverage : torch.Tensor
+        Number of agents contributing to each cell, (B, 1, H, W). This is the
+        exact agent count, not a proxy: tr Sigma is identically 0 wherever
+        coverage < 2, so any statistic about sensor conflict has to be
+        conditioned on this rather than on the evidence, which the ego alone
+        already makes positive everywhere in its own grid.
     """
     _, C, H, W = x.shape
     B, L = affine_matrix.shape[:2]
@@ -235,6 +248,7 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
     out = []
     log_evidence_list = []
     disagreement_list = []
+    coverage_list = []
 
     # iterate each batch
     for b in range(B):
@@ -291,10 +305,12 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
         out.append(fused)
         log_evidence_list.append(log_evidence[0])
         disagreement_list.append(disagreement)
+        coverage_list.append(valid.to(log_lambda.dtype).sum(dim=0))
 
     return (torch.stack(out),
             torch.stack(log_evidence_list),
-            torch.stack(disagreement_list))
+            torch.stack(disagreement_list),
+            torch.stack(coverage_list))
 
 
 class LevyPyramidFusion(PyramidFusion):
@@ -408,8 +424,8 @@ class LevyPyramidFusion(PyramidFusion):
         occ_map_list : list[torch.tensor]
             per-level foreground logits, as in PyramidFusion
         uncertainty : dict, only if ``return_uncertainty``
-            'evidence', 'disagreement', 'sigma', 'sigma_calibrated', each
-            [B, 1, H, W] at level-0 resolution, plus 'per_scale'.
+            'evidence', 'disagreement', 'sigma', 'sigma_calibrated', 'coverage',
+            each [B, 1, H, W] at level-0 resolution, plus 'per_scale'.
         """
         if stochastic and self.training:
             raise RuntimeError(
@@ -455,7 +471,7 @@ class LevyPyramidFusion(PyramidFusion):
 
                 score = score * cam_crop_mask
 
-            fused, log_evidence, disagreement = levy_weighted_fuse(
+            fused, log_evidence, disagreement, coverage = levy_weighted_fuse(
                 feature_list[i], score, record_len, affine_matrix,
                 self.align_corners,
                 tau=self.tau,
@@ -465,7 +481,7 @@ class LevyPyramidFusion(PyramidFusion):
                 stochastic=stochastic,
             )
             fused_feature_list.append(fused)
-            per_scale.append((log_evidence, disagreement))
+            per_scale.append((log_evidence, disagreement, coverage))
 
         fused_feature = self.decode_multiscale_feature(fused_feature_list)
 
@@ -489,10 +505,11 @@ class LevyPyramidFusion(PyramidFusion):
         disagreement_acc = None
         scale_maps = []
 
-        for i, (log_evidence, disagreement) in enumerate(per_scale):
+        for i, (log_evidence, disagreement, coverage) in enumerate(per_scale):
             if self.detach_uncertainty:
                 log_evidence = log_evidence.detach()
                 disagreement = disagreement.detach()
+                coverage = coverage.detach()
 
             evidence = torch.exp(log_evidence.clamp(max=60.0))
             phi = poisson_inverse_moment(evidence)
@@ -503,6 +520,7 @@ class LevyPyramidFusion(PyramidFusion):
                 'log_evidence': log_evidence,
                 'disagreement': disagreement,
                 'sigma': sigma,
+                'coverage': coverage,
             })
 
             if i > 0:
@@ -524,5 +542,10 @@ class LevyPyramidFusion(PyramidFusion):
             'disagreement': disagreement_acc,
             'sigma': sigma_acc,
             'sigma_calibrated': self.calib_a * sigma_acc + self.calib_b,
+            # Level 0 is the reference grid, so its agent count is exact. The
+            # deeper levels are not omega-averaged in: interpolating counts
+            # would produce fractional agents and blur the >= 2 boundary that
+            # tells "sensor conflict" apart from "only one agent here".
+            'coverage': scale_maps[0]['coverage'],
             'per_scale': scale_maps,
         }

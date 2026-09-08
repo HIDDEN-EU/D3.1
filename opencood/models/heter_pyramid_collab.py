@@ -208,7 +208,9 @@ class HeterPyramidCollab(nn.Module):
                             occ_outputs})
 
         # Levy spatial trust map: 'evidence', 'disagreement', 'sigma',
-        # 'sigma_calibrated' at level-0 BEV resolution, plus 'per_scale'.
+        # 'sigma_calibrated', 'coverage' at level-0 BEV resolution, plus
+        # 'per_scale'. Read the first three through 'coverage': tr Sigma is
+        # identically 0 wherever fewer than two agents contribute.
         # Diagnostic only -- detached by default, no effect on the loss.
         output_dict.update({'levy_uncertainty': levy_uncertainty})
 

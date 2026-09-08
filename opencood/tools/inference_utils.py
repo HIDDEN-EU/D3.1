@@ -316,8 +316,14 @@ def get_cav_box(batch_data):
 # 'levy_uncertainty' in the output dict, so the caller simply gets None back.
 # ---------------------------------------------------------------------------
 
-# Channels of the aggregated (multi-scale) trust map, in display order.
+# Channels of the aggregated (multi-scale) trust map that carry a magnitude and
+# are worth summarising statistically.
 LEVY_CHANNELS = ('evidence', 'disagreement', 'sigma')
+
+# Panels of the BEV render. 'coverage' leads because it is the mask the other
+# three have to be read through -- disagreement and sigma are structurally 0
+# wherever fewer than two agents contribute.
+LEVY_VIS_CHANNELS = ('coverage',) + LEVY_CHANNELS
 
 
 def _levy_map_to_numpy(tensor, batch_idx=0):
@@ -346,12 +352,12 @@ def save_levy_uncertainty(levy_uncertainty, timestamp, save_path):
         return
 
     arrays = {}
-    for key in ('evidence', 'disagreement', 'sigma', 'sigma_calibrated'):
+    for key in ('coverage', 'evidence', 'disagreement', 'sigma', 'sigma_calibrated'):
         if levy_uncertainty.get(key, None) is not None:
             arrays[key] = _levy_map_to_numpy(levy_uncertainty[key])
 
     for level, scale_map in enumerate(levy_uncertainty.get('per_scale', [])):
-        for key in ('evidence', 'disagreement', 'sigma'):
+        for key in ('evidence', 'disagreement', 'sigma', 'coverage'):
             arrays[f'{key}_l{level}'] = _levy_map_to_numpy(scale_map[key])
 
     np.savez_compressed(
@@ -362,44 +368,72 @@ def summarize_levy_uncertainty(levy_uncertainty):
     """
     Per-frame summary statistics of the aggregated trust map.
 
-    Statistics are taken over *observed* cells only -- cells no agent sees carry
-    zero intensity by construction (``levy_weighted_fuse`` masks them to
-    LOG_ZERO), so evidence is exactly 0 there and including them would drag every
-    percentile toward the empty-space value.
+    Reported in two blocks, because the two populations answer different
+    questions and pooling them is misleading:
+
+    ``grid``
+        every cell at least one agent contributes to. The ego is warped by the
+        identity, so in practice this is its entire BEV extent -- these numbers
+        describe the whole plane, mostly empty road.
+    ``overlap``
+        cells where two or more agents contribute. tr Sigma is identically zero
+        below that (the variance of a single sample), so this is the only
+        population in which disagreement and sigma mean anything at all. None
+        for a frame with no collaborator overlap.
 
     Returns
     -------
     dict or None
-        ``{channel: {'mean', 'p50', 'p90', 'p99', 'max'}}`` plus 'observed_frac'.
+        ``{'coverage': {...}, 'grid': {channel: {...}}, 'overlap': {...} or None}``
+        where each channel carries mean / p50 / p90 / p99 / max.
         None when there is no Levy uncertainty to summarise.
     """
     if levy_uncertainty is None:
         return None
 
-    evidence = _levy_map_to_numpy(levy_uncertainty['evidence'])
-    observed = evidence > 0
-    n_observed = int(observed.sum())
+    coverage = _levy_map_to_numpy(levy_uncertainty['coverage'])
+    channels = {key: _levy_map_to_numpy(levy_uncertainty[key])
+                for key in LEVY_CHANNELS}
 
-    stats = {'observed_frac': float(n_observed) / evidence.size}
-    if n_observed == 0:
-        return stats
+    def block(mask):
+        if not mask.any():
+            return None
+        out = {}
+        for key, values in channels.items():
+            selected = values[mask]
+            out[key] = {
+                'mean': float(selected.mean()),
+                'p50': float(np.percentile(selected, 50)),
+                'p90': float(np.percentile(selected, 90)),
+                'p99': float(np.percentile(selected, 99)),
+                'max': float(selected.max()),
+            }
+        return out
 
-    for key in LEVY_CHANNELS:
-        values = _levy_map_to_numpy(levy_uncertainty[key])[observed]
-        stats[key] = {
-            'mean': float(values.mean()),
-            'p50': float(np.percentile(values, 50)),
-            'p90': float(np.percentile(values, 90)),
-            'p99': float(np.percentile(values, 99)),
-            'max': float(values.max()),
-        }
-    return stats
+    covered = coverage >= 1
+    overlap = coverage >= 2
+
+    return {
+        'coverage': {
+            'covered_frac': float(covered.mean()),
+            'overlap_frac': float(overlap.mean()),
+            'mean_agents': float(coverage[covered].mean()) if covered.any() else 0.0,
+            'max_agents': float(coverage.max()),
+        },
+        'grid': block(covered),
+        'overlap': block(overlap),
+    }
 
 
 def visualize_levy_uncertainty(levy_uncertainty, pc_range, save_path,
                                infer_result=None, left_hand=False):
     """
-    Render the three trust-map channels as stacked BEV heatmaps.
+    Render the coverage map and the three trust-map channels as stacked BEV
+    heatmaps.
+
+    Coverage comes first deliberately: it is the exact per-cell agent count, and
+    disagreement and sigma are structurally zero wherever it is below 2, so the
+    dark regions of those two panels are only interpretable against it.
 
     Ground-truth and predicted box centres are overlaid so that a disagreement
     or evidence structure can be read against the objects in the scene.
@@ -438,18 +472,26 @@ def visualize_levy_uncertainty(levy_uncertainty, pc_range, save_path,
 
     width = (x_max - x_min) / 40
     height = (y_max - y_min) / 40
-    fig, axes = plt.subplots(len(LEVY_CHANNELS), 1,
-                             figsize=(width, height * len(LEVY_CHANNELS) * 1.25))
+    fig, axes = plt.subplots(len(LEVY_VIS_CHANNELS), 1,
+                             figsize=(width, height * len(LEVY_VIS_CHANNELS) * 1.25))
 
-    for ax, key in zip(np.atleast_1d(axes), LEVY_CHANNELS):
+    for ax, key in zip(np.atleast_1d(axes), LEVY_VIS_CHANNELS):
         values = _levy_map_to_numpy(levy_uncertainty[key])
-        # Evidence spans orders of magnitude in 'logit' score_mode; the other two
-        # are heavy tailed. Clip the colour scale at p99 so a handful of cells
-        # cannot wash the map out.
-        observed = values[values > 0]
-        vmax = float(np.percentile(observed, 99)) if observed.size else 1.0
+        if key == 'coverage':
+            # An agent count, so show it whole rather than clipped: the step
+            # from 1 to 2 agents is the boundary the other panels depend on.
+            vmax = max(float(values.max()), 1.0)
+            cmap = 'cividis'
+        else:
+            # Evidence spans orders of magnitude in 'logit' score_mode; the
+            # other two are heavy tailed. Clip the colour scale at p99 so a
+            # handful of cells cannot wash the map out.
+            positive = values[values > 0]
+            vmax = float(np.percentile(positive, 99)) if positive.size else 1.0
+            vmax = max(vmax, 1e-12)
+            cmap = 'viridis'
         image = ax.imshow(values, origin='lower', extent=extent, aspect='equal',
-                          cmap='viridis', vmin=0.0, vmax=max(vmax, 1e-12))
+                          cmap=cmap, vmin=0.0, vmax=vmax)
         fig.colorbar(image, ax=ax, fraction=0.02, pad=0.01)
 
         if gt_xy is not None:
