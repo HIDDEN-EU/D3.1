@@ -184,11 +184,24 @@ model:
 
         # sigma -> physical error scale, fitted post-hoc on the val split against
         # CRPS (blueprint Sec. 5.3). Identity until you fit it.
+        # Fit with:  python opencood/tools/calibrate_levy.py --model_dir <dir> --write_yaml
         calibration:
           a: 1.0
           b: 0.0
 
-    shrink_header: 
+        # Sparsification Filter (blueprint Sec. 8). Read at inference time only;
+        # CLI flags of inference.py override these. Look up sigma_hat under each
+        # predicted box and, where it exceeds sigma_threshold (0.20 ~ the p90 of
+        # overlap cells), either drop the box or scale its confidence.
+        sparsify:
+          enable: false
+          sigma_threshold: 0.20
+          mode: attenuate      # 'attenuate' (score *= attenuation) | 'drop'
+          attenuation: 0.5
+          reduce: mean         # 'mean' | 'max' | 'center' over the box footprint
+          channel: sigma       # 'sigma' (raw sigma_hat) | 'sigma_calibrated'
+
+    shrink_header:
       kernal_size: [ 3 ]
       stride: [ 1 ]
       padding: [ 1 ]

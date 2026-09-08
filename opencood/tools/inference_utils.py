@@ -425,6 +425,182 @@ def summarize_levy_uncertainty(levy_uncertainty):
     }
 
 
+# Blueprint Sec. 8 "Sensing Triage": 0.20 ~= the p90 of the overlap-cell sigma
+# distribution for the m1_base_levy epoch-17 checkpoint (levy_stats.json:
+# overlap.sigma.p90 = 0.211).
+LEVY_SPARSIFY_DEFAULT_SIGMA = 0.20
+
+
+def _levy_grid_indices(xy, pc_range, hw):
+    """
+    Map metric ``(x, y)`` coordinates to ``(row, col)`` indices on the BEV trust
+    map.
+
+    Mirrors :func:`visualize_levy_uncertainty`: the map is ``[H(y), W(x)]`` with
+    row 0 at ``y_min`` and column 0 at ``x_min``.
+
+    Parameters
+    ----------
+    xy : np.ndarray
+        ``(K, 2)`` metric coordinates.
+    pc_range : list
+        ``[x_min, y_min, z_min, x_max, y_max, z_max]``.
+    hw : tuple
+        ``(H, W)`` of the trust map.
+
+    Returns
+    -------
+    (np.ndarray, np.ndarray)
+        ``row`` and ``col`` int arrays, clipped to the grid.
+    """
+    x_min, y_min, _, x_max, y_max, _ = [float(v) for v in pc_range]
+    H, W = hw
+    x = np.asarray(xy[:, 0], dtype=np.float64)
+    y = np.asarray(xy[:, 1], dtype=np.float64)
+    col = np.floor((x - x_min) / (x_max - x_min) * W).astype(np.int64)
+    row = np.floor((y - y_min) / (y_max - y_min) * H).astype(np.int64)
+    return np.clip(row, 0, H - 1), np.clip(col, 0, W - 1)
+
+
+def levy_sigma_under_boxes(pred_box_tensor, levy_uncertainty, pc_range,
+                           channel='sigma', reduce='mean'):
+    """
+    Sample the Levy spatial trust map under every predicted 3D box.
+
+    Parameters
+    ----------
+    pred_box_tensor : torch.Tensor or None
+        ``(N, 8, 3)`` corner tensor in the ego metric frame. ``None`` yields an
+        empty array.
+    levy_uncertainty : dict or None
+        ``output_dict['levy_uncertainty']``. ``None`` (plain PyramidFusion)
+        yields an empty array.
+    pc_range : list
+        ``[x_min, y_min, z_min, x_max, y_max, z_max]`` of the BEV grid
+        (``hypes['postprocess']['gt_range']``).
+    channel : str
+        Which map to read -- ``'sigma'`` (raw feature-space ``sigma_hat``, the
+        blueprint's ``\\hat{\\sigma}``) or ``'sigma_calibrated'``.
+    reduce : str
+        ``'center'`` looks up the single cell under the box centre; ``'mean'`` /
+        ``'max'`` reduce over every cell the box's xy footprint covers.
+
+    Returns
+    -------
+    np.ndarray
+        ``(N,)`` float array of per-box sigma; empty when there is nothing to
+        sample.
+    """
+    if pred_box_tensor is None or levy_uncertainty is None:
+        return np.zeros(0, dtype=np.float64)
+    levy_map = levy_uncertainty.get(channel, None)
+    if levy_map is None:
+        return np.zeros(0, dtype=np.float64)
+    if isinstance(levy_map, np.ndarray):
+        levy_map = np.squeeze(levy_map)
+    else:
+        levy_map = _levy_map_to_numpy(levy_map)
+    H, W = levy_map.shape[-2:]
+
+    boxes = pred_box_tensor.detach().cpu().numpy()  # (N, 8, 3)
+    if boxes.shape[0] == 0:
+        return np.zeros(0, dtype=np.float64)
+
+    centers = boxes[:, :, :2].mean(axis=1)  # (N, 2)
+    if reduce == 'center':
+        row, col = _levy_grid_indices(centers, pc_range, (H, W))
+        return levy_map[row, col].astype(np.float64)
+
+    out = np.zeros(boxes.shape[0], dtype=np.float64)
+    for n in range(boxes.shape[0]):
+        r, c = _levy_grid_indices(boxes[n, :, :2], pc_range, (H, W))
+        patch = levy_map[r.min():r.max() + 1, c.min():c.max() + 1]
+        if patch.size == 0:  # degenerate box, fall back to the centre cell
+            rr, cc = _levy_grid_indices(centers[n:n + 1], pc_range, (H, W))
+            out[n] = levy_map[rr[0], cc[0]]
+        else:
+            out[n] = patch.max() if reduce == 'max' else patch.mean()
+    return out
+
+
+def sparsify_predictions_by_levy(pred_box_tensor, pred_score, levy_uncertainty,
+                                 pc_range,
+                                 sigma_threshold=LEVY_SPARSIFY_DEFAULT_SIGMA,
+                                 mode='attenuate', attenuation=0.5,
+                                 channel='sigma', reduce='mean'):
+    """
+    Sparsification Filter (blueprint Sec. 8, "Sensing Triage").
+
+    Look up the Levy sigma map under each predicted box; where the box sits in a
+    high-uncertainty zone (``sigma_hat > sigma_threshold`` -- 0.20 is the p90 of
+    the overlap-cell sigma for the m1_base_levy checkpoint), either drop the box
+    or lower its confidence.
+
+    Parameters
+    ----------
+    pred_box_tensor : torch.Tensor or None
+        ``(N, 8, 3)``.
+    pred_score : torch.Tensor or None
+        ``(N,)``.
+    levy_uncertainty : dict or None
+        ``None`` (plain PyramidFusion) makes this a no-op passthrough.
+    pc_range : list
+        ``[x_min, y_min, z_min, x_max, y_max, z_max]``.
+    sigma_threshold : float
+        High-uncertainty cut on ``sigma_hat``.
+    mode : str
+        ``'attenuate'`` -> ``score *= attenuation`` for flagged boxes;
+        ``'drop'``      -> flagged boxes are removed.
+    attenuation : float
+        Multiplicative confidence penalty in ``'attenuate'`` mode.
+    channel, reduce : str
+        Passed to :func:`levy_sigma_under_boxes`.
+
+    Returns
+    -------
+    pred_box_tensor, pred_score
+        Same types as the inputs (possibly fewer rows; both ``None`` if every
+        box was dropped).
+    info : dict
+        ``{'sigma', 'flagged', 'n_total', 'n_flagged', 'mode',
+        'sigma_threshold'}``.
+    """
+    info = {'sigma': np.zeros(0, dtype=np.float64),
+            'flagged': np.zeros(0, dtype=bool),
+            'n_total': 0, 'n_flagged': 0, 'mode': mode,
+            'sigma_threshold': float(sigma_threshold)}
+    if pred_box_tensor is None or levy_uncertainty is None \
+            or pred_box_tensor.shape[0] == 0:
+        return pred_box_tensor, pred_score, info
+
+    sigma = levy_sigma_under_boxes(pred_box_tensor, levy_uncertainty, pc_range,
+                                   channel=channel, reduce=reduce)
+    flagged = sigma > float(sigma_threshold)
+    info.update({'sigma': sigma, 'flagged': flagged,
+                 'n_total': int(sigma.shape[0]),
+                 'n_flagged': int(flagged.sum())})
+
+    if not flagged.any():
+        return pred_box_tensor, pred_score, info
+
+    if mode == 'drop':
+        keep = torch.as_tensor(~flagged, device=pred_box_tensor.device)
+        pred_box_tensor = pred_box_tensor[keep]
+        pred_score = pred_score[keep] if pred_score is not None else None
+        if pred_box_tensor.shape[0] == 0:
+            return None, None, info
+    elif mode == 'attenuate':
+        if pred_score is not None:
+            penalty = torch.ones_like(pred_score)
+            penalty[torch.as_tensor(flagged, device=pred_score.device)] = \
+                float(attenuation)
+            pred_score = pred_score * penalty
+    else:
+        raise ValueError(f"unknown sparsify mode {mode!r}")
+
+    return pred_box_tensor, pred_score, info
+
+
 def visualize_levy_uncertainty(levy_uncertainty, pc_range, save_path,
                                infer_result=None, left_hand=False):
     """

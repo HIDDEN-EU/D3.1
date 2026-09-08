@@ -39,6 +39,28 @@ def test_parser():
                              '--save_vis_interval frames. Silently does nothing '
                              'unless the fusion backbone is LevyPyramidFusion '
                              'with levy.compute_uncertainty enabled.')
+    parser.add_argument('--levy_sparsify', action='store_true',
+                        help='apply the Levy Sparsification Filter: predicted '
+                             'boxes whose footprint on the sigma trust map '
+                             'exceeds --levy_sigma_thresh are dropped or '
+                             'down-weighted before AP is computed. No-op unless '
+                             'the fusion backbone is LevyPyramidFusion.')
+    parser.add_argument('--levy_sigma_thresh', type=float, default=None,
+                        help='high-uncertainty sigma_hat cut for '
+                             '--levy_sparsify. Default: levy.sparsify.'
+                             'sigma_threshold from the yaml, else 0.20 '
+                             '(~p90 of overlap cells).')
+    parser.add_argument('--levy_sparsify_mode', type=str, default=None,
+                        choices=['attenuate', 'drop'],
+                        help="action for a flagged box (default: yaml, "
+                             "else 'attenuate').")
+    parser.add_argument('--levy_sparsify_attenuation', type=float, default=None,
+                        help='confidence multiplier for flagged boxes in '
+                             'attenuate mode (default: yaml, else 0.5).')
+    parser.add_argument('--levy_sparsify_reduce', type=str, default=None,
+                        choices=['mean', 'max', 'center'],
+                        help='how to reduce sigma over a box footprint '
+                             '(default: yaml, else mean).')
     parser.add_argument('--range', type=str, default="102.4,102.4",
                         help="detection range is [-102.4, +102.4, -102.4, +102.4]")
     parser.add_argument('--no_score', action='store_true',
@@ -213,6 +235,31 @@ def main():
     levy_stats = []
     levy_npy_path = os.path.join(opt.model_dir, f'levy_{infer_info}')
 
+    # Levy Sparsification Filter. Defaults come from the yaml
+    # (model.args.fusion_backbone.levy.sparsify), CLI flags override them.
+    try:
+        _levy_cfg = hypes['model']['args']['fusion_backbone'].get('levy', {}) or {}
+    except (KeyError, TypeError):
+        _levy_cfg = {}
+    _sp_cfg = _levy_cfg.get('sparsify', {}) or {}
+    sparsify_on = opt.levy_sparsify or bool(_sp_cfg.get('enable', False))
+    sparsify_thresh = opt.levy_sigma_thresh if opt.levy_sigma_thresh is not None \
+        else float(_sp_cfg.get('sigma_threshold',
+                               inference_utils.LEVY_SPARSIFY_DEFAULT_SIGMA))
+    sparsify_mode = opt.levy_sparsify_mode or _sp_cfg.get('mode', 'attenuate')
+    sparsify_atten = opt.levy_sparsify_attenuation \
+        if opt.levy_sparsify_attenuation is not None \
+        else float(_sp_cfg.get('attenuation', 0.5))
+    sparsify_reduce = opt.levy_sparsify_reduce or _sp_cfg.get('reduce', 'mean')
+    sparsify_channel = _sp_cfg.get('channel', 'sigma')
+    levy_sparsify_tally = {'frames': 0, 'boxes': 0, 'flagged': 0}
+    if sparsify_on:
+        print(f"[levy] sparsification filter armed: {sparsify_mode}, "
+              f"sigma_hat > {sparsify_thresh:g} (channel={sparsify_channel}, "
+              f"reduce={sparsify_reduce}"
+              + (f", x{sparsify_atten:g})" if sparsify_mode == 'attenuate'
+                 else ")"))
+
     for i, batch_data in enumerate(data_loader):
         print(f"{infer_info}_{i}")
         if batch_data is None:
@@ -269,7 +316,23 @@ def main():
                         os.makedirs(levy_npy_path)
                     inference_utils.save_levy_uncertainty(levy_uncertainty, i,
                                                           levy_npy_path)
-            
+
+            # Sparsification Filter: prune / down-weight boxes that fall in
+            # high-sigma zones of the Levy trust map, then let AP see the result.
+            if sparsify_on and levy_uncertainty is not None:
+                pred_box_tensor, pred_score, sp_info = \
+                    inference_utils.sparsify_predictions_by_levy(
+                        pred_box_tensor, pred_score, levy_uncertainty,
+                        hypes['postprocess']['gt_range'],
+                        sigma_threshold=sparsify_thresh, mode=sparsify_mode,
+                        attenuation=sparsify_atten, channel=sparsify_channel,
+                        reduce=sparsify_reduce)
+                infer_result['pred_box_tensor'] = pred_box_tensor
+                infer_result['pred_score'] = pred_score
+                levy_sparsify_tally['frames'] += 1
+                levy_sparsify_tally['boxes'] += sp_info['n_total']
+                levy_sparsify_tally['flagged'] += sp_info['n_flagged']
+
             eval_utils.caluclate_tp_fp(pred_box_tensor,
                                     pred_score,
                                     gt_box_tensor,
@@ -347,6 +410,15 @@ def main():
 
     if opt.save_levy:
         report_levy_stats(levy_stats, levy_npy_path)
+
+    if sparsify_on and levy_sparsify_tally['frames']:
+        t = levy_sparsify_tally
+        frac = t['flagged'] / max(t['boxes'], 1)
+        verb = 'dropped' if sparsify_mode == 'drop' else \
+            f"down-weighted (x{sparsify_atten:g})"
+        print(f"\n[levy] sparsification filter: {t['flagged']}/{t['boxes']} "
+              f"predicted boxes {verb} over {t['frames']} frames ({frac:.1%}), "
+              f"sigma_hat > {sparsify_thresh:g}")
 
 if __name__ == '__main__':
     main()
