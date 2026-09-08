@@ -3,6 +3,7 @@
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import argparse
+import json
 import os
 import time
 from typing import OrderedDict
@@ -31,6 +32,13 @@ def test_parser():
     parser.add_argument('--save_npy', action='store_true',
                         help='whether to save prediction and gt result'
                              'in npy file')
+    parser.add_argument('--save_levy', action='store_true',
+                        help='report Levy spatial trust map (evidence, '
+                             'disagreement, sigma) statistics over every frame, '
+                             'and dump the maps as npz plus BEV heatmaps every '
+                             '--save_vis_interval frames. Silently does nothing '
+                             'unless the fusion backbone is LevyPyramidFusion '
+                             'with levy.compute_uncertainty enabled.')
     parser.add_argument('--range', type=str, default="102.4,102.4",
                         help="detection range is [-102.4, +102.4, -102.4, +102.4]")
     parser.add_argument('--no_score', action='store_true',
@@ -38,6 +46,47 @@ def test_parser():
     parser.add_argument('--note', default="", type=str, help="any other thing?")
     opt = parser.parse_args()
     return opt
+
+
+def report_levy_stats(levy_stats, levy_npy_path):
+    """
+    Average the per-frame Levy trust-map statistics and report them.
+
+    Percentiles are taken within each frame and then averaged over frames, so
+    they describe a typical frame rather than the pooled cell distribution.
+    Prints the table and writes it next to the dumped maps as levy_stats.json.
+    """
+    if not levy_stats:
+        print("[levy] --save_levy was set but the model emitted no "
+              "'levy_uncertainty'. The fusion backbone is not LevyPyramidFusion "
+              "(or levy.compute_uncertainty is off) -- nothing was saved.")
+        return
+
+    summary = {
+        'frames': len(levy_stats),
+        'observed_frac': float(np.mean([s['observed_frac'] for s in levy_stats])),
+    }
+    for key in inference_utils.LEVY_CHANNELS:
+        per_frame = [s[key] for s in levy_stats if key in s]
+        if not per_frame:
+            continue
+        summary[key] = {stat: float(np.mean([f[stat] for f in per_frame]))
+                        for stat in ('mean', 'p50', 'p90', 'p99', 'max')}
+
+    print(f"\n[levy] spatial trust map over {summary['frames']} frames "
+          f"(observed cells only, {summary['observed_frac']:.1%} of the BEV grid)")
+    print(f"{'channel':<14}{'mean':>12}{'p50':>12}{'p90':>12}{'p99':>12}{'max':>12}")
+    for key in inference_utils.LEVY_CHANNELS:
+        if key not in summary:
+            continue
+        row = summary[key]
+        print(f"{key:<14}" + "".join(f"{row[stat]:>12.4g}"
+                                     for stat in ('mean', 'p50', 'p90', 'p99', 'max')))
+
+    stats_path = os.path.join(levy_npy_path, 'levy_stats.json')
+    with open(stats_path, 'w') as f:
+        json.dump(summary, f, indent=2)
+    print(f"[levy] per-frame maps in {levy_npy_path}, summary in {stats_path}\n")
 
 
 def main():
@@ -127,6 +176,11 @@ def main():
     
     infer_info = opt.fusion_method + opt.note
 
+    # Levy spatial trust map. Stays empty -- and every levy branch below stays
+    # inert -- when the fusion backbone is not LevyPyramidFusion, since only
+    # LevyPyramidFusion puts 'levy_uncertainty' in the model output.
+    levy_stats = []
+    levy_npy_path = os.path.join(opt.model_dir, f'levy_{infer_info}')
 
     for i, batch_data in enumerate(data_loader):
         print(f"{infer_info}_{i}")
@@ -167,6 +221,23 @@ def main():
             pred_box_tensor = infer_result['pred_box_tensor']
             gt_box_tensor = infer_result['gt_box_tensor']
             pred_score = infer_result['pred_score']
+
+            # None for a plain PyramidFusion backbone, which makes --save_levy
+            # a no-op rather than an error.
+            levy_uncertainty = infer_result.get('levy_uncertainty', None)
+            if opt.save_levy and levy_uncertainty is not None:
+                # Summaries are a few floats, so they are worth taking on every
+                # frame; the maps themselves are only dumped on the vis interval.
+                frame_stats = inference_utils.summarize_levy_uncertainty(
+                    levy_uncertainty)
+                if frame_stats is not None:
+                    levy_stats.append(frame_stats)
+
+                if i % opt.save_vis_interval == 0:
+                    if not os.path.exists(levy_npy_path):
+                        os.makedirs(levy_npy_path)
+                    inference_utils.save_levy_uncertainty(levy_uncertainty, i,
+                                                          levy_npy_path)
             
             eval_utils.caluclate_tp_fp(pred_box_tensor,
                                     pred_score,
@@ -202,6 +273,20 @@ def main():
                 infer_result.update({"cav_box_np": cav_box_np, \
                                      "agent_modality_list": agent_modality_list})
 
+            if opt.save_levy and levy_uncertainty is not None \
+                    and (i % opt.save_vis_interval == 0):
+                levy_vis_path_root = os.path.join(opt.model_dir,
+                                                  f'levy_vis_{infer_info}')
+                if not os.path.exists(levy_vis_path_root):
+                    os.makedirs(levy_vis_path_root)
+
+                inference_utils.visualize_levy_uncertainty(
+                    levy_uncertainty,
+                    hypes['postprocess']['gt_range'],
+                    os.path.join(levy_vis_path_root, 'levy_%05d.png' % i),
+                    infer_result=infer_result,
+                    left_hand=left_hand)
+
             if (i % opt.save_vis_interval == 0) and (pred_box_tensor is not None or gt_box_tensor is not None):
                 vis_save_path_root = os.path.join(opt.model_dir, f'vis_{infer_info}')
                 if not os.path.exists(vis_save_path_root):
@@ -228,6 +313,9 @@ def main():
 
     _, ap50, ap70 = eval_utils.eval_final_results(result_stat,
                                 opt.model_dir, infer_info)
+
+    if opt.save_levy:
+        report_levy_stats(levy_stats, levy_npy_path)
 
 if __name__ == '__main__':
     main()

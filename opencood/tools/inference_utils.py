@@ -150,6 +150,10 @@ def inference_early_fusion(batch_data, model, dataset):
                     "gt_box_tensor" : gt_box_tensor}
     if "depth_items" in output_dict['ego']:
         return_dict.update({"depth_items" : output_dict['ego']['depth_items']})
+    # Only present when the fusion backbone is LevyPyramidFusion with
+    # levy.compute_uncertainty on; absent for plain PyramidFusion.
+    if output_dict['ego'].get("levy_uncertainty", None) is not None:
+        return_dict.update({"levy_uncertainty" : output_dict['ego']['levy_uncertainty']})
     
     return return_dict
 
@@ -302,3 +306,162 @@ def get_cav_box(batch_data):
 
 
     return cav_box_np, agent_modality_list
+
+
+# ---------------------------------------------------------------------------
+# Levy spatial trust map (opencood.models.fuse_modules.levy_pyramid_fuse)
+#
+# These helpers are no-ops unless the fusion backbone is LevyPyramidFusion with
+# levy.compute_uncertainty enabled -- a plain PyramidFusion run never puts
+# 'levy_uncertainty' in the output dict, so the caller simply gets None back.
+# ---------------------------------------------------------------------------
+
+# Channels of the aggregated (multi-scale) trust map, in display order.
+LEVY_CHANNELS = ('evidence', 'disagreement', 'sigma')
+
+
+def _levy_map_to_numpy(tensor, batch_idx=0):
+    """[B, 1, H, W] tensor -> [H, W] float32 array for batch element ``batch_idx``."""
+    return tensor[batch_idx, 0].detach().float().cpu().numpy()
+
+
+def save_levy_uncertainty(levy_uncertainty, timestamp, save_path):
+    """
+    Dump one frame's Levy trust map to a compressed .npz.
+
+    Stores the aggregated maps ('evidence', 'disagreement', 'sigma',
+    'sigma_calibrated') plus each pyramid level's own maps under a '_l{i}'
+    suffix, so you can tell which scale drives the signal.
+
+    Parameters
+    ----------
+    levy_uncertainty : dict or None
+        ``output_dict['levy_uncertainty']``. None (plain PyramidFusion) is a no-op.
+    timestamp : int
+        Frame index, used for the filename.
+    save_path : str
+        Directory to write ``%04d_levy.npz`` into.
+    """
+    if levy_uncertainty is None:
+        return
+
+    arrays = {}
+    for key in ('evidence', 'disagreement', 'sigma', 'sigma_calibrated'):
+        if levy_uncertainty.get(key, None) is not None:
+            arrays[key] = _levy_map_to_numpy(levy_uncertainty[key])
+
+    for level, scale_map in enumerate(levy_uncertainty.get('per_scale', [])):
+        for key in ('evidence', 'disagreement', 'sigma'):
+            arrays[f'{key}_l{level}'] = _levy_map_to_numpy(scale_map[key])
+
+    np.savez_compressed(
+        os.path.join(save_path, '%04d_levy.npz' % timestamp), **arrays)
+
+
+def summarize_levy_uncertainty(levy_uncertainty):
+    """
+    Per-frame summary statistics of the aggregated trust map.
+
+    Statistics are taken over *observed* cells only -- cells no agent sees carry
+    zero intensity by construction (``levy_weighted_fuse`` masks them to
+    LOG_ZERO), so evidence is exactly 0 there and including them would drag every
+    percentile toward the empty-space value.
+
+    Returns
+    -------
+    dict or None
+        ``{channel: {'mean', 'p50', 'p90', 'p99', 'max'}}`` plus 'observed_frac'.
+        None when there is no Levy uncertainty to summarise.
+    """
+    if levy_uncertainty is None:
+        return None
+
+    evidence = _levy_map_to_numpy(levy_uncertainty['evidence'])
+    observed = evidence > 0
+    n_observed = int(observed.sum())
+
+    stats = {'observed_frac': float(n_observed) / evidence.size}
+    if n_observed == 0:
+        return stats
+
+    for key in LEVY_CHANNELS:
+        values = _levy_map_to_numpy(levy_uncertainty[key])[observed]
+        stats[key] = {
+            'mean': float(values.mean()),
+            'p50': float(np.percentile(values, 50)),
+            'p90': float(np.percentile(values, 90)),
+            'p99': float(np.percentile(values, 99)),
+            'max': float(values.max()),
+        }
+    return stats
+
+
+def visualize_levy_uncertainty(levy_uncertainty, pc_range, save_path,
+                               infer_result=None, left_hand=False):
+    """
+    Render the three trust-map channels as stacked BEV heatmaps.
+
+    Ground-truth and predicted box centres are overlaid so that a disagreement
+    or evidence structure can be read against the objects in the scene.
+
+    Parameters
+    ----------
+    levy_uncertainty : dict or None
+        ``output_dict['levy_uncertainty']``. None (plain PyramidFusion) is a no-op.
+    pc_range : list
+        [xmin, ymin, zmin, xmax, ymax, zmax], used to put the maps in metres.
+    save_path : str
+        Output .png path.
+    infer_result : dict, optional
+        Carries 'gt_box_tensor' / 'pred_box_tensor' for the overlay.
+    left_hand : bool
+        OPV2V / V2XSet are left-hand (CARLA); flip y so the render matches the
+        BEV lidar visualizations written next to it.
+    """
+    if levy_uncertainty is None:
+        return
+
+    from matplotlib import pyplot as plt
+
+    x_min, y_min, _, x_max, y_max, _ = [float(v) for v in pc_range]
+    extent = [x_min, x_max, y_max, y_min] if left_hand \
+        else [x_min, x_max, y_min, y_max]
+
+    def box_centers(tensor):
+        if tensor is None or tensor.shape[0] == 0:
+            return None
+        return tensor.detach().cpu().numpy()[:, :, :2].mean(axis=1)
+
+    infer_result = infer_result or {}
+    gt_xy = box_centers(infer_result.get('gt_box_tensor', None))
+    pred_xy = box_centers(infer_result.get('pred_box_tensor', None))
+
+    width = (x_max - x_min) / 40
+    height = (y_max - y_min) / 40
+    fig, axes = plt.subplots(len(LEVY_CHANNELS), 1,
+                             figsize=(width, height * len(LEVY_CHANNELS) * 1.25))
+
+    for ax, key in zip(np.atleast_1d(axes), LEVY_CHANNELS):
+        values = _levy_map_to_numpy(levy_uncertainty[key])
+        # Evidence spans orders of magnitude in 'logit' score_mode; the other two
+        # are heavy tailed. Clip the colour scale at p99 so a handful of cells
+        # cannot wash the map out.
+        observed = values[values > 0]
+        vmax = float(np.percentile(observed, 99)) if observed.size else 1.0
+        image = ax.imshow(values, origin='lower', extent=extent, aspect='equal',
+                          cmap='viridis', vmin=0.0, vmax=max(vmax, 1e-12))
+        fig.colorbar(image, ax=ax, fraction=0.02, pad=0.01)
+
+        if gt_xy is not None:
+            ax.scatter(gt_xy[:, 0], gt_xy[:, 1], s=8, facecolors='none',
+                       edgecolors='#00ff00', linewidths=0.6, label='gt')
+        if pred_xy is not None:
+            ax.scatter(pred_xy[:, 0], pred_xy[:, 1], s=8, marker='x',
+                       c='#ff2d2d', linewidths=0.6, label='pred')
+
+        ax.set_title(key, fontsize=8)
+        ax.tick_params(labelsize=6)
+
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=200)
+    plt.close(fig)
