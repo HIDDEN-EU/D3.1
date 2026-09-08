@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from opencood.utils.common_utils import torch_tensor_to_numpy
+from opencood.utils import common_utils
 from opencood.utils.transformation_utils import get_relative_transformation
 from opencood.utils.box_utils import create_bbx, project_box3d, nms_rotated
 from opencood.utils.camera_utils import indices_to_depth
@@ -599,6 +600,149 @@ def sparsify_predictions_by_levy(pred_box_tensor, pred_score, levy_uncertainty,
         raise ValueError(f"unknown sparsify mode {mode!r}")
 
     return pred_box_tensor, pred_score, info
+
+
+def levy_match_tp_fp(pred_box_tensor, pred_score, gt_box_tensor, iou_thresh):
+    """
+    Per-box true/false-positive labels, indexed by the *input* box order.
+
+    Mirrors :func:`opencood.utils.eval_utils.caluclate_tp_fp` exactly -- greedy
+    matching in descending score order, each ground-truth box consumed by at
+    most one detection -- but keeps the correspondence back to the original box
+    indices, which caluclate_tp_fp loses when it appends to score-sorted lists.
+    That correspondence is what lets a per-box quantity such as the Levy sigma
+    be paired with whether the box was actually right.
+
+    Returns
+    -------
+    np.ndarray
+        ``(N,)`` bool, True where the box is a true positive at ``iou_thresh``.
+    """
+    if pred_box_tensor is None or pred_box_tensor.shape[0] == 0:
+        return np.zeros(0, dtype=bool)
+
+    det_boxes = torch_tensor_to_numpy(pred_box_tensor)
+    det_score = torch_tensor_to_numpy(pred_score)
+    is_tp = np.zeros(det_boxes.shape[0], dtype=bool)
+
+    if gt_box_tensor is None or gt_box_tensor.shape[0] == 0:
+        return is_tp
+    gt_boxes = torch_tensor_to_numpy(gt_box_tensor)
+
+    det_polygon_list = list(common_utils.convert_format(det_boxes))
+    gt_polygon_list = list(common_utils.convert_format(gt_boxes))
+
+    for idx in np.argsort(-det_score):
+        if len(gt_polygon_list) == 0:
+            break
+        ious = common_utils.compute_iou(det_polygon_list[idx], gt_polygon_list)
+        if np.max(ious) < iou_thresh:
+            continue
+        is_tp[idx] = True
+        gt_polygon_list.pop(int(np.argmax(ious)))
+
+    return is_tp
+
+
+def _average_ranks(values):
+    """Ranks of ``values``, ties sharing their mean rank (1-based)."""
+    order = np.argsort(values, kind='mergesort')
+    ranks = np.empty(values.shape[0], dtype=np.float64)
+    ranks[order] = np.arange(1, values.shape[0] + 1)
+    ordered = values[order]
+    start = 0
+    while start < ordered.shape[0]:
+        stop = start
+        while stop + 1 < ordered.shape[0] and ordered[stop + 1] == ordered[start]:
+            stop += 1
+        if stop > start:
+            ranks[order[start:stop + 1]] = (start + stop + 2) / 2.0
+        start = stop + 1
+    return ranks
+
+
+def _trapezoid(y, x):
+    return float(np.sum((y[:-1] + y[1:]) / 2.0 * np.diff(x)))
+
+
+def _auroc(score, positive):
+    """P(score of a random positive > score of a random negative), ties at 0.5."""
+    n_pos = int(positive.sum())
+    n_neg = int(positive.shape[0] - n_pos)
+    if n_pos == 0 or n_neg == 0:
+        return float('nan')
+    ranks = _average_ranks(score)
+    return float((ranks[positive].sum() - n_pos * (n_pos + 1) / 2.0)
+                 / (n_pos * n_neg))
+
+
+def levy_error_metrics(sigma, is_tp, sigma_threshold, n_steps=101):
+    """
+    Does sigma predict detection error?
+
+    Treats a false positive as the event to be caught. Reports the separation of
+    the two sigma distributions, the ranking quality (AUROC, AUSE), and what the
+    operating threshold actually buys.
+
+    AUROC is the decisive number: 0.5 means sigma carries no information about
+    whether a box is wrong, above 0.5 means high sigma marks false positives,
+    and below 0.5 means the signal is *inverted* -- high sigma marks the boxes
+    that are right, so filtering on it removes true positives.
+
+    AUSE is the area between the sigma-ordered and oracle-ordered
+    sparsification curves: progressively discard the most-uncertain boxes and
+    watch the false-positive rate of what is left. 0 is a perfect ranking;
+    larger is worse.
+    """
+    sigma = np.asarray(sigma, dtype=np.float64)
+    is_tp = np.asarray(is_tp, dtype=bool)
+    n = sigma.shape[0]
+    if n == 0:
+        return None
+
+    is_fp = ~is_tp
+    n_fp = int(is_fp.sum())
+    base_rate = n_fp / n
+
+    def dist(mask):
+        if not mask.any():
+            return None
+        values = sigma[mask]
+        return {'n': int(mask.sum()), 'mean': float(values.mean()),
+                'p50': float(np.percentile(values, 50)),
+                'p90': float(np.percentile(values, 90))}
+
+    # Sparsification curves: drop the most-uncertain fraction, keep the rest.
+    fractions = np.linspace(0.0, 0.95, n_steps)
+
+    def curve(order):
+        errors = is_fp[order]
+        return np.array([errors[int(round(f * n)):].mean()
+                         if int(round(f * n)) < n else 0.0 for f in fractions])
+
+    by_sigma = curve(np.argsort(-sigma, kind='mergesort'))
+    by_oracle = curve(np.argsort(-is_fp.astype(np.float64), kind='mergesort'))
+
+    flagged = sigma > float(sigma_threshold)
+    n_flagged = int(flagged.sum())
+    precision = float(is_fp[flagged].mean()) if n_flagged else float('nan')
+
+    return {
+        'n_boxes': n, 'n_tp': int(is_tp.sum()), 'n_fp': n_fp,
+        'base_fp_rate': base_rate,
+        'sigma_tp': dist(is_tp), 'sigma_fp': dist(is_fp),
+        'auroc': _auroc(sigma, is_fp),
+        'ause': _trapezoid(by_sigma - by_oracle, fractions),
+        'percentiles': {f'p{q}': float(np.percentile(sigma, q))
+                        for q in (10, 25, 50, 75, 90, 99)},
+        'at_threshold': {
+            'sigma_threshold': float(sigma_threshold),
+            'flagged_frac': n_flagged / n,
+            'precision': precision,
+            'lift': precision / base_rate if base_rate > 0 else float('nan'),
+            'recall': float(flagged[is_fp].mean()) if n_fp else float('nan'),
+        },
+    }
 
 
 def visualize_levy_uncertainty(levy_uncertainty, pc_range, save_path,

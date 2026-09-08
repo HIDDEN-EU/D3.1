@@ -39,6 +39,16 @@ def test_parser():
                              '--save_vis_interval frames. Silently does nothing '
                              'unless the fusion backbone is LevyPyramidFusion '
                              'with levy.compute_uncertainty enabled.')
+    parser.add_argument('--levy_diag', action='store_true',
+                        help='measure whether sigma_hat actually predicts '
+                             'detection error: per-box sigma split by '
+                             'true/false positive, AUROC, AUSE and what the '
+                             'sparsification threshold buys. Run this before '
+                             'tuning --levy_sigma_thresh. No-op unless the '
+                             'backbone is LevyPyramidFusion.')
+    parser.add_argument('--levy_diag_iou', type=float, default=0.5,
+                        help='IoU threshold at which --levy_diag calls a box a '
+                             'true positive (default 0.5)')
     parser.add_argument('--levy_sparsify', action='store_true',
                         help='apply the Levy Sparsification Filter: predicted '
                              'boxes whose footprint on the sigma trust map '
@@ -140,6 +150,66 @@ def report_levy_stats(levy_stats, levy_npy_path):
     with open(stats_path, 'w') as f:
         json.dump(summary, f, indent=2)
     print(f"\n[levy] per-frame maps in {levy_npy_path}, summary in {stats_path}\n")
+
+
+def report_levy_error_diagnostic(levy_diag, sigma_threshold, iou, out_dir):
+    """
+    Print and persist the sigma-vs-error diagnostic.
+
+    The headline is AUROC. Sigma is only usable as a filter if high sigma marks
+    boxes that are *wrong*; 0.5 means it carries no such information, and below
+    0.5 means it marks the boxes that are right, so any threshold on it removes
+    true positives and costs AP.
+    """
+    if not levy_diag['sigma']:
+        print("[levy] --levy_diag was set but no Levy uncertainty was produced "
+              "-- nothing to diagnose.")
+        return
+
+    sigma = np.concatenate(levy_diag['sigma'])
+    is_tp = np.concatenate(levy_diag['is_tp'])
+    m = inference_utils.levy_error_metrics(sigma, is_tp, sigma_threshold)
+    if m is None:
+        print("[levy] --levy_diag: no predicted boxes to diagnose.")
+        return
+
+    print(f"\n[levy] error diagnostic @ IoU {iou:g} -- does sigma predict error?")
+    print(f"  {m['n_boxes']} boxes: {m['n_tp']} TP, {m['n_fp']} FP "
+          f"(base FP rate {m['base_fp_rate']:.1%})")
+    for name, key in (('sigma | TP', 'sigma_tp'), ('      | FP', 'sigma_fp')):
+        d = m[key]
+        if d is None:
+            continue
+        print(f"  {name}: mean {d['mean']:.4f}   p50 {d['p50']:.4f}   "
+              f"p90 {d['p90']:.4f}   (n={d['n']})")
+
+    auroc = m['auroc']
+    if auroc == auroc:  # not NaN
+        if auroc > 0.55:
+            verdict = "high sigma marks false positives -- usable"
+        elif auroc < 0.45:
+            verdict = "INVERTED: high sigma marks CORRECT boxes"
+        else:
+            verdict = "no signal: sigma is uninformative about correctness"
+        print(f"  AUROC(sigma -> FP) = {auroc:.4f}   [{verdict}]")
+    print(f"  AUSE = {m['ause']:.4f}   (0 = perfect ranking, larger is worse)")
+
+    pct = m['percentiles']
+    print("  box sigma percentiles: "
+          + "  ".join(f"{k} {v:.4f}" for k, v in pct.items()))
+
+    t = m['at_threshold']
+    print(f"  at sigma > {t['sigma_threshold']:g}: flags {t['flagged_frac']:.1%} "
+          f"of boxes; {t['precision']:.1%} of those are FP vs a "
+          f"{m['base_fp_rate']:.1%} base rate (lift x{t['lift']:.2f}); "
+          f"catches {t['recall']:.1%} of all FP")
+
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    path = os.path.join(out_dir, 'levy_error_diagnostic.json')
+    with open(path, 'w') as f:
+        json.dump({'iou': float(iou), **m}, f, indent=2)
+    print(f"  written to {path}\n")
 
 
 def main():
@@ -253,6 +323,10 @@ def main():
     sparsify_reduce = opt.levy_sparsify_reduce or _sp_cfg.get('reduce', 'mean')
     sparsify_channel = _sp_cfg.get('channel', 'sigma')
     levy_sparsify_tally = {'frames': 0, 'boxes': 0, 'flagged': 0}
+    # Per-box sigma paired with whether the box was actually correct. Collected
+    # before the sparsification filter runs, so it characterises sigma itself
+    # rather than sigma after its own threshold has reshuffled the scores.
+    levy_diag = {'sigma': [], 'is_tp': []}
     if sparsify_on:
         print(f"[levy] sparsification filter armed: {sparsify_mode}, "
               f"sigma_hat > {sparsify_thresh:g} (channel={sparsify_channel}, "
@@ -316,6 +390,18 @@ def main():
                         os.makedirs(levy_npy_path)
                     inference_utils.save_levy_uncertainty(levy_uncertainty, i,
                                                           levy_npy_path)
+
+            if opt.levy_diag and levy_uncertainty is not None \
+                    and pred_box_tensor is not None:
+                levy_diag['sigma'].append(
+                    inference_utils.levy_sigma_under_boxes(
+                        pred_box_tensor, levy_uncertainty,
+                        hypes['postprocess']['gt_range'],
+                        channel=sparsify_channel, reduce=sparsify_reduce))
+                levy_diag['is_tp'].append(
+                    inference_utils.levy_match_tp_fp(
+                        pred_box_tensor, pred_score, gt_box_tensor,
+                        opt.levy_diag_iou))
 
             # Sparsification Filter: prune / down-weight boxes that fall in
             # high-sigma zones of the Levy trust map, then let AP see the result.
@@ -410,6 +496,10 @@ def main():
 
     if opt.save_levy:
         report_levy_stats(levy_stats, levy_npy_path)
+
+    if opt.levy_diag:
+        report_levy_error_diagnostic(levy_diag, sparsify_thresh,
+                                     opt.levy_diag_iou, levy_npy_path)
 
     if sparsify_on and levy_sparsify_tally['frames']:
         t = levy_sparsify_tally
