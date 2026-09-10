@@ -182,6 +182,44 @@ model:
         detach_uncertainty: true
         compute_uncertainty: true
 
+        # Alternative trust-map parameterisations, computed alongside the base map
+        # in the same forward pass and exposed under levy_uncertainty['variants'].
+        # Diagnostic only: the fused feature -- and so every detection output --
+        # is untouched, so these need no retraining.
+        #
+        #   disagreement_mode 'cosine' computes tr Sigma on L2-normalised features,
+        #   measuring pure angular conflict between agents instead of letting the
+        #   feature magnitude ||F_j|| dominate. It reduces to 1 - ||sum_j p_j
+        #   F_hat_j||^2 and is bounded in [0, 1], so a near-zero background feature
+        #   no longer reads as agreement just for being short.
+        #
+        #   shift adds an offset to the logits before exponentiation:
+        #   lambda_j = tau * exp(gamma * (S_j + shift)). Measured foreground logits
+        #   sit near S ~ -5, which leaves Lambda ~ 0.34 -- far below the ~1.5 where
+        #   phi(Lambda) and the (1 - exp(-Lambda)) gate carry information. shift 6.0
+        #   at gamma 0.25 (or 5.2 at gamma 1.0) recentres Lambda on ~1.5.
+        uncertainty_variants:
+          - name: cos            # angular conflict, intensity as trained
+            gamma: 0.25
+            shift: 0.0
+            disagreement_mode: cosine
+          - name: cos_shift      # angular conflict + Lambda recentred
+            gamma: 0.25
+            shift: 6.0
+            disagreement_mode: cosine
+          - name: raw_shift      # isolates the shift: blueprint tr Sigma, Lambda recentred
+            gamma: 0.25
+            shift: 6.0
+            disagreement_mode: raw
+          - name: g1_shift       # sharper intensity, Lambda recentred
+            gamma: 1.0
+            shift: 5.2
+            disagreement_mode: raw
+          - name: cos_g1_shift   # both changes together
+            gamma: 1.0
+            shift: 5.2
+            disagreement_mode: cosine
+
         # sigma -> physical error scale, fitted post-hoc on the val split against
         # CRPS (blueprint Sec. 5.3). Identity until you fit it.
         # Fit with:  python opencood/tools/calibrate_levy.py --model_dir <dir> --write_yaml
@@ -190,12 +228,30 @@ model:
           b: 0.0
 
         # Sparsification Filter (blueprint Sec. 8). Read at inference time only;
-        # CLI flags of inference.py override these. Look up sigma_hat under each
-        # predicted box and, where it exceeds sigma_threshold (0.20 ~ the p90 of
-        # overlap cells), either drop the box or scale its confidence.
+        # CLI flags of inference.py override these.
+        #
+        # MEASURED VERDICT: leave this off. Benchmarked at every threshold, on
+        # both the raw and the cosine channels, at five noise levels: dropping
+        # never pays. It always lowers the FP rate -- it removes more false than
+        # true positives -- but AP falls faster, because the true positives it
+        # takes cost recall that the precision gain never repays. Prefer the
+        # re-scoring rule below, which re-ranks instead of discarding and so
+        # never sacrifices recall.
+        #
+        # NOTE the thresholds here are on the OLD score_mode 'heal' scale, where
+        # sigma_hat had p50 ~ 0.28. Under score_mode 'logit' sigma_hat p50 is
+        # ~2.14, so 0.20 flags almost nothing. Re-measure before using.
         sparsify:
           enable: false
           sigma_threshold: 0.20
+          # Which side of the threshold to flag. Pick it from the error
+          # diagnostic (inference.py --levy_diag), never by assumption:
+          # 'low'  -> flag sigma_hat < threshold. Correct for an INVERTED
+          #           channel, i.e. AUROC(sigma->FP) < 0.5, which is what the
+          #           raw sigma_hat is on this checkpoint (~0.20).
+          # 'high' -> flag sigma_hat > threshold (original blueprint behaviour).
+          #           Correct for the cosine channels, whose AUROC is > 0.5.
+          direction: low
           mode: attenuate      # 'attenuate' (score *= attenuation) | 'drop'
           attenuation: 0.5
           reduce: mean         # 'mean' | 'max' | 'center' over the box footprint

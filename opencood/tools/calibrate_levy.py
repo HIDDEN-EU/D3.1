@@ -212,6 +212,16 @@ def build_parser():
                    help="trust-map channel to calibrate ('sigma' = raw sigma_hat)")
     p.add_argument('--score_thresh', type=float, default=0.0,
                    help='ignore predictions below this confidence')
+    p.add_argument('--min_evidence', type=float, default=0.0,
+                   help='drop predictions whose pooled Levy evidence Lambda is '
+                        'below this before matching/fitting. The sigma_hat = '
+                        'sqrt(disagreement/evidence) identity only holds for '
+                        'Lambda >~ 2 (blueprint Sec. 5.2); a strict gate (e.g. '
+                        '2-5) keeps the fit inside that regime. 0 = off.')
+    p.add_argument('--min_coverage', type=float, default=0.0,
+                   help='drop predictions whose Levy coverage (number of '
+                        'overlapping agents at the box centre) is below this. '
+                        'sigma_hat is structurally 0 below 2. 0 = off.')
     p.add_argument('--max_frames', type=int, default=None,
                    help='cap the number of frames (quick runs)')
     p.add_argument('--a_grid', type=str, default="",
@@ -275,7 +285,8 @@ def main():
                         shuffle=False, pin_memory=False, drop_last=False)
 
     sigmas, res_x, res_y = [], [], []
-    n_frames = n_pred = n_matched = n_no_levy = 0
+    n_frames = n_pred = n_matched = n_no_levy = n_gated = 0
+    ev_kept = []
 
     for i, batch_data in enumerate(loader):
         if batch_data is None:
@@ -303,13 +314,37 @@ def main():
             if pred_box.shape[0] == 0:
                 continue
 
-        n_pred += int(pred_box.shape[0])
-        pred_np = pred_box.detach().cpu().numpy()
-        gt_np = gt_box.detach().cpu().numpy()
-
         box_sigma = inference_utils.levy_sigma_under_boxes(
             pred_box, levy_unc, pc_range,
             channel=opt.channel, reduce=opt.reduce)
+
+        # Spatial-evidence gate: keep only predictions sitting on a BEV cell
+        # where the Levy operator actually had evidence to work with, so the
+        # affine fit is not diluted by structural-zero / low-Lambda boxes that
+        # fall outside the sigma_hat = sqrt(disagreement/evidence) regime.
+        if opt.min_evidence > 0 or opt.min_coverage > 0:
+            gate = np.ones(pred_box.shape[0], dtype=bool)
+            box_ev = inference_utils.levy_sigma_under_boxes(
+                pred_box, levy_unc, pc_range,
+                channel='evidence', reduce=opt.reduce)
+            if opt.min_evidence > 0:
+                gate &= box_ev >= opt.min_evidence
+            if opt.min_coverage > 0:
+                box_cov = inference_utils.levy_sigma_under_boxes(
+                    pred_box, levy_unc, pc_range,
+                    channel='coverage', reduce='center')
+                gate &= box_cov >= opt.min_coverage
+            n_gated += int((~gate).sum())
+            if not gate.any():
+                continue
+            pred_box = pred_box[torch.as_tensor(gate, device=pred_box.device)]
+            box_sigma = box_sigma[gate]
+            box_ev = box_ev[gate]
+            ev_kept.append(box_ev)
+
+        n_pred += int(pred_box.shape[0])
+        pred_np = pred_box.detach().cpu().numpy()
+        gt_np = gt_box.detach().cpu().numpy()
 
         pred_c = pred_np[:, :, :2].mean(axis=1)
         gt_c = gt_np[:, :, :2].mean(axis=1)
@@ -362,6 +397,16 @@ def main():
 
     print("\n================ Levy calibration ================")
     print(f"frames processed        : {n_frames}")
+    if opt.min_evidence > 0 or opt.min_coverage > 0:
+        ev_all = np.concatenate(ev_kept) if ev_kept else np.zeros(0)
+        print(f"evidence gate           : Lambda >= {opt.min_evidence:g}"
+              + (f", coverage >= {opt.min_coverage:g}" if opt.min_coverage > 0
+                 else ""))
+        print(f"predictions gated out   : {n_gated} "
+              f"({n_gated / max(n_gated + n_pred, 1):.1%})")
+        if ev_all.size:
+            print(f"kept Lambda min/p50/mean: {ev_all.min():.3f} / "
+                  f"{np.percentile(ev_all, 50):.3f} / {ev_all.mean():.3f}")
     print(f"predictions kept        : {n_pred}")
     print(f"matched pairs (< {opt.match_dist:g} m): {n_matched}")
     print(f"sigma_hat  mean/p50/p90 : {sigma_arr.mean():.4f} / "
@@ -374,6 +419,23 @@ def main():
     print(f"CRPS  const  s={const_scale:.3f} m : {const_crps:.4f} m")
     print(f"CRPS  best affine       : {best['crps']:.4f} m")
     print(f">>> levy.calibration:  a = {best['a']:.6g}   b = {best['b']:.6g}")
+
+    # Degeneracy check: the affine map only means something if sigma_hat carries
+    # scale information the fit can use. If 'a' pinned to a grid edge, or the fit
+    # is no better than a constant scale, sigma_hat contributed nothing.
+    a_lo, a_hi = float(a_grid.min()), float(a_grid.max())
+    warns = []
+    if abs(best['a'] - a_lo) < 1e-9 or abs(best['a'] - a_hi) < 1e-9:
+        warns.append(f"a pinned to the edge of its grid [{a_lo:g}, {a_hi:g}] "
+                     f"-- widen --a_grid or the true slope is out of range")
+    if best['crps'] >= const_crps - 1e-4:
+        warns.append("best affine CRPS is not below the constant-scale CRPS "
+                     "-- sigma_hat adds no calibration information")
+    if spear == spear and spear < 0:
+        warns.append(f"sigma_hat is ANTI-correlated with error (Spearman "
+                     f"{spear:.2f}) -- an affine of sigma_hat cannot calibrate it")
+    for w in warns:
+        print(f"  [warn] {w}")
     print("=================================================\n")
 
     snippet_path = os.path.join(opt.model_dir, 'levy_calibration.yaml')

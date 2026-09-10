@@ -186,9 +186,72 @@ def _sample_multinomial_fuse(features, p, counts, eps=1e-12):
     return acc / counts.clamp(min=1.0)
 
 
+def levy_uncertainty_terms(feature_in_ego, s_map, valid, tau, gamma,
+                           shift=0.0, disagreement_mode='raw',
+                           disagreement_reduction='sum'):
+    """
+    Evidence and disagreement for one set of intensity parameters.
+
+    Factored out of :func:`levy_weighted_fuse` so the same warped features can be
+    read by several parameterisations in a single forward pass -- the trust map is
+    detached and post-hoc, so re-reading it under a different gamma or a different
+    disagreement definition costs one pass, not one training run.
+
+    Parameters
+    ----------
+    feature_in_ego : torch.Tensor
+        ``(N, C, H, W)`` agent features already warped into the ego frame.
+    s_map : torch.Tensor
+        ``(N, 1, H, W)`` the quantity the intensity exponentiates -- raw logits in
+        ``score_mode='logit'``, HEAL's sigmoid score otherwise.
+    valid : torch.Tensor
+        ``(N, 1, H, W)`` bool, which agent observes which cell.
+    gamma, shift : float
+        ``lambda_j = tau * exp(gamma * (S_j + shift))``. ``shift`` is a pure
+        rescale of Lambda by ``exp(gamma * shift)`` -- it cancels out of the
+        weights ``p_j`` entirely, so it cannot reorder cells by evidence. It moves
+        Lambda's dynamic range, which is what ``phi(Lambda)`` and the
+        ``1 - exp(-Lambda)`` gate actually respond to.
+    disagreement_mode : str
+        ``'raw'``    -- tr Sigma on the features as they are (blueprint).
+        ``'cosine'`` -- tr Sigma on L2-normalised features, so the measure is pure
+        angular conflict between agents and a near-zero background feature no
+        longer scores as agreement by virtue of being short. Since every unit
+        vector has ``||F_hat||^2 = 1``, this reduces to
+        ``1 - ||sum_j p_j F_hat_j||^2`` and is bounded in ``[0, 1]``.
+
+    Returns
+    -------
+    log_evidence : torch.Tensor ``(1, H, W)``
+    disagreement : torch.Tensor ``(1, H, W)``
+    """
+    C = feature_in_ego.shape[1]
+    log_lambda = math.log(tau) + gamma * (s_map + shift)
+    log_lambda = log_lambda.masked_fill(~valid, LOG_ZERO)
+    log_evidence = torch.logsumexp(log_lambda, dim=0, keepdim=True)
+    weights = torch.exp(log_lambda - log_evidence) * valid.to(log_lambda.dtype)
+
+    feat = feature_in_ego
+    if disagreement_mode == 'cosine':
+        # Unobserved cells carry an all-zero feature; the clamp keeps 0/0 out of
+        # the division and their weight is 0 regardless.
+        norm = torch.linalg.vector_norm(feat, dim=1, keepdim=True).clamp(min=1e-6)
+        feat = feat / norm
+
+    sq_norm = torch.sum(feat ** 2, dim=1, keepdim=True)
+    second_moment = torch.sum(weights * sq_norm, dim=0)
+    mean_feat = torch.sum(feat * weights, dim=0)
+    disagreement = (second_moment
+                    - torch.sum(mean_feat ** 2, dim=0, keepdim=True)).clamp(min=0.0)
+    if disagreement_mode != 'cosine' and disagreement_reduction == 'mean':
+        disagreement = disagreement / C
+    return log_evidence, disagreement
+
+
 def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
                        tau=0.5, gamma=1.0, logits=None,
-                       disagreement_reduction='sum', stochastic=False):
+                       disagreement_reduction='sum', stochastic=False,
+                       variants=None):
     """
     Levy replacement for :func:`opencood.models.fuse_modules.pyramid_fuse.weighted_fuse`.
 
@@ -249,6 +312,11 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
     log_evidence_list = []
     disagreement_list = []
     coverage_list = []
+    # Alternative parameterisations of the same trust map, read off the same
+    # warped features. Diagnostic only -- never touches `fused`.
+    variants = variants or []
+    variant_acc = {v['name']: {'log_evidence': [], 'disagreement': []}
+                   for v in variants}
 
     # iterate each batch
     for b in range(B):
@@ -302,15 +370,30 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
                 # unbiased across all regimes.
                 fused = torch.where(counts >= 1, sampled, fused)
 
+        for v in variants:
+            with torch.no_grad():
+                v_log_ev, v_dis = levy_uncertainty_terms(
+                    feature_in_ego, s_map, valid, tau,
+                    gamma=v.get('gamma', gamma), shift=v.get('shift', 0.0),
+                    disagreement_mode=v.get('disagreement_mode', 'raw'),
+                    disagreement_reduction=disagreement_reduction)
+            variant_acc[v['name']]['log_evidence'].append(v_log_ev[0])
+            variant_acc[v['name']]['disagreement'].append(v_dis)
+
         out.append(fused)
         log_evidence_list.append(log_evidence[0])
         disagreement_list.append(disagreement)
         coverage_list.append(valid.to(log_lambda.dtype).sum(dim=0))
 
+    variant_maps = {
+        name: (torch.stack(d['log_evidence']), torch.stack(d['disagreement']))
+        for name, d in variant_acc.items()
+    }
     return (torch.stack(out),
             torch.stack(log_evidence_list),
             torch.stack(disagreement_list),
-            torch.stack(coverage_list))
+            torch.stack(coverage_list),
+            variant_maps)
 
 
 class LevyPyramidFusion(PyramidFusion):
@@ -369,10 +452,29 @@ class LevyPyramidFusion(PyramidFusion):
         self.calib_a = float(calibration.get('a', 1.0))
         self.calib_b = float(calibration.get('b', 0.0))
 
+        # Alternative trust-map parameterisations, evaluated alongside the base
+        # one in the same forward pass. Each entry: {name, gamma, shift,
+        # disagreement_mode}. Diagnostic only -- the fused feature and therefore
+        # every detection output is unaffected, which the benchmark checks by
+        # asserting AP is bit-identical to a run with no variants.
+        self.uncertainty_variants = []
+        for v in (levy_cfg.get('uncertainty_variants', []) or []):
+            self.uncertainty_variants.append({
+                'name': str(v['name']),
+                'gamma': float(v.get('gamma', gamma)),
+                'shift': float(v.get('shift', 0.0)),
+                'disagreement_mode': v.get('disagreement_mode', 'raw'),
+            })
+
         self.uncertainty_output = None
 
         print(f'Levy pyramid fusion: tau={self.tau}, gamma={gamma}, '
               f'score_mode={self.score_mode}, scale_weights={self.scale_weights}')
+        if self.uncertainty_variants:
+            print('Levy uncertainty variants: '
+                  + ', '.join(f"{v['name']}(gamma={v['gamma']:g}, "
+                              f"shift={v['shift']:g}, {v['disagreement_mode']})"
+                              for v in self.uncertainty_variants))
 
     @property
     def gamma(self):
@@ -448,6 +550,7 @@ class LevyPyramidFusion(PyramidFusion):
         fused_feature_list = []
         occ_map_list = []
         per_scale = []
+        per_scale_variants = {}
 
         for i in range(self.num_levels):
             occ_map = eval(f"self.single_head_{i}")(feature_list[i])  # [N, 1, H, W]
@@ -471,22 +574,35 @@ class LevyPyramidFusion(PyramidFusion):
 
                 score = score * cam_crop_mask
 
-            fused, log_evidence, disagreement, coverage = levy_weighted_fuse(
-                feature_list[i], score, record_len, affine_matrix,
-                self.align_corners,
-                tau=self.tau,
-                gamma=self.gamma,
-                logits=occ_map if self.score_mode == 'logit' else None,
-                disagreement_reduction=self.disagreement_reduction,
-                stochastic=stochastic,
-            )
+            fused, log_evidence, disagreement, coverage, variant_maps = \
+                levy_weighted_fuse(
+                    feature_list[i], score, record_len, affine_matrix,
+                    self.align_corners,
+                    tau=self.tau,
+                    gamma=self.gamma,
+                    logits=occ_map if self.score_mode == 'logit' else None,
+                    disagreement_reduction=self.disagreement_reduction,
+                    stochastic=stochastic,
+                    variants=self.uncertainty_variants
+                    if self.compute_uncertainty else None,
+                )
             fused_feature_list.append(fused)
             per_scale.append((log_evidence, disagreement, coverage))
+            for name, (v_log_ev, v_dis) in variant_maps.items():
+                per_scale_variants.setdefault(name, []).append(
+                    (v_log_ev, v_dis, coverage))
 
         fused_feature = self.decode_multiscale_feature(fused_feature_list)
 
-        self.uncertainty_output = self._build_trust_map(per_scale) \
-            if self.compute_uncertainty else None
+        if self.compute_uncertainty:
+            self.uncertainty_output = self._build_trust_map(per_scale)
+            if per_scale_variants:
+                self.uncertainty_output['variants'] = {
+                    name: self._build_trust_map(ps)
+                    for name, ps in per_scale_variants.items()
+                }
+        else:
+            self.uncertainty_output = None
 
         if return_uncertainty:
             return fused_feature, occ_map_list, self.uncertainty_output

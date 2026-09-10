@@ -71,6 +71,53 @@ def test_parser():
                         choices=['mean', 'max', 'center'],
                         help='how to reduce sigma over a box footprint '
                              '(default: yaml, else mean).')
+    parser.add_argument('--levy_sparsify_direction', type=str, default=None,
+                        choices=['low', 'high'],
+                        help="which side of --levy_sigma_thresh to flag: 'low' "
+                             "suppresses the low-sigma noisy-background zone "
+                             "(the error diagnostic on m1_base_levy shows sigma "
+                             "is inverted -- low sigma marks the false "
+                             "positives); 'high' is the original blueprint "
+                             "behaviour. Default: yaml, else 'low'.")
+    parser.add_argument('--levy_evidence_gate', type=float, default=None,
+                        help='apply the evidence gate: multiply each box score '
+                             'by (1-exp(-Lambda))^k, where k is this value and '
+                             'Lambda is the Levy evidence pooled under the box. '
+                             'k=0.5 measured -10.5%% FP/frame at 80%% recall for '
+                             '+0.0036 AP70 on the clean split; it turns negative '
+                             'under pose noise, so leave it off there. No-op '
+                             'unless the backbone is LevyPyramidFusion.')
+    parser.add_argument('--levy_evidence_scale', type=float, default=1.0,
+                        help='multiply Lambda by this before the gate. Equivalent '
+                             'to a logit shift b = ln(scale)/gamma, which is a '
+                             'pure rescale of Lambda and so cannot reorder boxes '
+                             '-- it only moves where the gate sits on its curve.')
+    parser.add_argument('--levy_disagreement_channel', type=str, default=None,
+                        help="name of a levy.uncertainty_variants entry whose "
+                             "disagreement map penalises the score, e.g. 'cos'. "
+                             "Pair with --levy_disagreement_beta. Only the "
+                             "cosine-normalised channels predict false positives "
+                             "in the right direction; the raw blueprint tr Sigma "
+                             "is inverted and needs a negative beta.")
+    parser.add_argument('--levy_disagreement_beta', type=float, default=0.0,
+                        help='strength of the disagreement penalty: score *= '
+                             'exp(-beta * D / norm). Measured optimum on the '
+                             'clean split is beta 0.5-1.5 with the evidence gate '
+                             'on; the penalty alone (no gate) makes things worse.')
+    parser.add_argument('--levy_disagreement_norm', type=float, default=0.2633,
+                        help='divisor that puts D on a beta-comparable scale. '
+                             'Default is the p90 of cosine disagreement measured '
+                             'on the OPV2V-H clean split -- fix it from a val '
+                             'split rather than recomputing per run, or beta '
+                             'stops meaning the same thing across conditions.')
+    parser.add_argument('--pos_std', type=float, default=0.0,
+                        help='std (metres) of the zero-mean Gaussian noise added '
+                             'to every agent\'s x/y localisation before fusion '
+                             '(blueprint Protocol 2). 0 = clean poses.')
+    parser.add_argument('--rot_std', type=float, default=0.0,
+                        help='std (degrees) of the zero-mean Gaussian noise '
+                             'added to every agent\'s yaw before fusion '
+                             '(blueprint Protocol 2). 0 = clean poses.')
     parser.add_argument('--range', type=str, default="102.4,102.4",
                         help="detection range is [-102.4, +102.4, -102.4, +102.4]")
     parser.add_argument('--no_score', action='store_true',
@@ -152,14 +199,16 @@ def report_levy_stats(levy_stats, levy_npy_path):
     print(f"\n[levy] per-frame maps in {levy_npy_path}, summary in {stats_path}\n")
 
 
-def report_levy_error_diagnostic(levy_diag, sigma_threshold, iou, out_dir):
+def report_levy_error_diagnostic(levy_diag, sigma_threshold, iou, out_dir,
+                                 direction='low'):
     """
     Print and persist the sigma-vs-error diagnostic.
 
     The headline is AUROC. Sigma is only usable as a filter if high sigma marks
     boxes that are *wrong*; 0.5 means it carries no such information, and below
-    0.5 means it marks the boxes that are right, so any threshold on it removes
-    true positives and costs AP.
+    0.5 means it marks the boxes that are right -- in which case the filter has
+    to run with ``direction='low'`` (flag sigma *below* the threshold) to remove
+    false positives instead of true positives.
     """
     if not levy_diag['sigma']:
         print("[levy] --levy_diag was set but no Levy uncertainty was produced "
@@ -168,14 +217,25 @@ def report_levy_error_diagnostic(levy_diag, sigma_threshold, iou, out_dir):
 
     sigma = np.concatenate(levy_diag['sigma'])
     is_tp = np.concatenate(levy_diag['is_tp'])
-    m = inference_utils.levy_error_metrics(sigma, is_tp, sigma_threshold)
+    m = inference_utils.levy_error_metrics(sigma, is_tp, sigma_threshold,
+                                           direction=direction)
     if m is None:
         print("[levy] --levy_diag: no predicted boxes to diagnose.")
         return
 
+    # Mean over frames of (false positives / predicted boxes in that frame).
+    frame_fp_rates = [float((~tp).mean()) for tp in levy_diag['is_tp']
+                      if tp.size]
+    avg_frame_fp_rate = float(np.mean(frame_fp_rates)) if frame_fp_rates \
+        else float('nan')
+    m['avg_frame_fp_rate'] = avg_frame_fp_rate
+    m['n_frames'] = len(frame_fp_rates)
+
     print(f"\n[levy] error diagnostic @ IoU {iou:g} -- does sigma predict error?")
     print(f"  {m['n_boxes']} boxes: {m['n_tp']} TP, {m['n_fp']} FP "
           f"(base FP rate {m['base_fp_rate']:.1%})")
+    print(f"  average false positive rate = {avg_frame_fp_rate:.1%} "
+          f"(mean over {len(frame_fp_rates)} frames with predictions)")
     for name, key in (('sigma | TP', 'sigma_tp'), ('      | FP', 'sigma_fp')):
         d = m[key]
         if d is None:
@@ -199,7 +259,8 @@ def report_levy_error_diagnostic(levy_diag, sigma_threshold, iou, out_dir):
           + "  ".join(f"{k} {v:.4f}" for k, v in pct.items()))
 
     t = m['at_threshold']
-    print(f"  at sigma > {t['sigma_threshold']:g}: flags {t['flagged_frac']:.1%} "
+    cmp = '<' if t['direction'] == 'low' else '>'
+    print(f"  at sigma {cmp} {t['sigma_threshold']:g}: flags {t['flagged_frac']:.1%} "
           f"of boxes; {t['precision']:.1%} of those are FP vs a "
           f"{m['base_fp_rate']:.1%} base rate (lift x{t['lift']:.2f}); "
           f"catches {t['recall']:.1%} of all FP")
@@ -277,19 +338,43 @@ def main():
 
     # setting noise
     np.random.seed(303)
+
+    # Pose Noise (blueprint Protocol 2). Misaligning the agents is what
+    # manufactures ghost boxes: each agent's BEV features land on the wrong
+    # cells, so features for a real object elsewhere pile up on empty ground.
+    # The dataset applies this per agent per frame in add_noise_data_dict().
+    if opt.pos_std > 0 or opt.rot_std > 0:
+        hypes['noise_setting'] = {
+            'add_noise': True,
+            'args': {'pos_std': opt.pos_std, 'rot_std': opt.rot_std,
+                     'pos_mean': 0.0, 'rot_mean': 0.0},
+        }
+        print(f"[noise] pose noise on: pos_std={opt.pos_std:g} m, "
+              f"rot_std={opt.rot_std:g} deg (zero-mean Gaussian, per agent)")
+    else:
+        hypes['noise_setting'] = {'add_noise': False}
     
     # build dataset for each noise setting
     print('Dataset Building')
     opencood_dataset = build_dataset(hypes, visualize=True, train=False)
     # opencood_dataset_subset = Subset(opencood_dataset, range(640,2100))
     # data_loader = DataLoader(opencood_dataset_subset,
+    # Pose noise is drawn inside __getitem__, which runs in the worker processes.
+    # A single np.random.seed() in the parent is inherited by every forked worker,
+    # so they share one stream and which draw lands on which frame depends on
+    # scheduling -- two runs with identical --pos_std then differ. Seeding each
+    # worker deterministically makes a noise level reproducible across runs.
+    def _seed_worker(worker_id):
+        np.random.seed(303 + worker_id)
+
     data_loader = DataLoader(opencood_dataset,
                             batch_size=1,
                             num_workers=4,
                             collate_fn=opencood_dataset.collate_batch_test,
                             shuffle=False,
                             pin_memory=False,
-                            drop_last=False)
+                            drop_last=False,
+                            worker_init_fn=_seed_worker)
     
     # Create the dictionary for evaluation
     result_stat = {0.3: {'tp': [], 'fp': [], 'gt': 0, 'score': []},                
@@ -322,14 +407,41 @@ def main():
         else float(_sp_cfg.get('attenuation', 0.5))
     sparsify_reduce = opt.levy_sparsify_reduce or _sp_cfg.get('reduce', 'mean')
     sparsify_channel = _sp_cfg.get('channel', 'sigma')
+    sparsify_direction = opt.levy_sparsify_direction \
+        or _sp_cfg.get('direction', 'low')
     levy_sparsify_tally = {'frames': 0, 'boxes': 0, 'flagged': 0}
+    levy_gate_tally = {'frames': 0, 'boxes': 0, 'factor_sum': 0.0}
+    levy_dis_tally = {'frames': 0, 'boxes': 0, 'factor_sum': 0.0, 'warned': False}
+    if opt.levy_disagreement_channel:
+        print(f"[levy] disagreement penalty armed: channel="
+              f"{opt.levy_disagreement_channel}, beta="
+              f"{opt.levy_disagreement_beta:g}, norm="
+              f"{opt.levy_disagreement_norm:g}")
+        if opt.levy_evidence_gate is None:
+            print("[levy]   warning: the penalty was only measured to help "
+                  "alongside --levy_evidence_gate; on its own it raised "
+                  "FP/frame on the clean split.")
+    if opt.levy_evidence_gate is not None:
+        print(f"[levy] evidence gate armed: score *= (1-exp(-Lambda"
+              + (f"*{opt.levy_evidence_scale:g}" if opt.levy_evidence_scale != 1.0
+                 else "")
+              + f"))^{opt.levy_evidence_gate:g} (reduce={sparsify_reduce})")
     # Per-box sigma paired with whether the box was actually correct. Collected
     # before the sparsification filter runs, so it characterises sigma itself
     # rather than sigma after its own threshold has reshuffled the scores.
-    levy_diag = {'sigma': [], 'is_tp': []}
+    # 'score' and 'is_tp_by_iou' are raw-order per-box arrays kept so a drop /
+    # threshold sweep can be replayed offline (opencood/tools/levy_drop_sweep.py)
+    # without re-running inference.
+    LEVY_DIAG_IOUS = (0.3, 0.5, 0.7)
+    levy_diag = {'sigma': [], 'is_tp': [], 'score': [],
+                 'evidence': [], 'disagreement': [], 'coverage': [],
+                 'variants': {},
+                 'is_tp_by_iou': {iou: [] for iou in LEVY_DIAG_IOUS},
+                 'gt_total': 0}
     if sparsify_on:
+        _cmp = '<' if sparsify_direction == 'low' else '>'
         print(f"[levy] sparsification filter armed: {sparsify_mode}, "
-              f"sigma_hat > {sparsify_thresh:g} (channel={sparsify_channel}, "
+              f"sigma_hat {_cmp} {sparsify_thresh:g} (channel={sparsify_channel}, "
               f"reduce={sparsify_reduce}"
               + (f", x{sparsify_atten:g})" if sparsify_mode == 'attenuate'
                  else ")"))
@@ -402,6 +514,90 @@ def main():
                     inference_utils.levy_match_tp_fp(
                         pred_box_tensor, pred_score, gt_box_tensor,
                         opt.levy_diag_iou))
+                levy_diag['score'].append(
+                    pred_score.detach().cpu().numpy()
+                    if pred_score is not None
+                    else np.zeros(pred_box_tensor.shape[0]))
+                for _iou in LEVY_DIAG_IOUS:
+                    levy_diag['is_tp_by_iou'][_iou].append(
+                        inference_utils.levy_match_tp_fp(
+                            pred_box_tensor, pred_score, gt_box_tensor, _iou))
+                levy_diag['gt_total'] += int(
+                    gt_box_tensor.shape[0] if gt_box_tensor is not None else 0)
+                # The other two trust channels, so the blueprint's 3-way
+                # re-scoring and the Protocol-3 ranking comparison can be
+                # replayed offline from the same run.
+                for _ch in ('evidence', 'disagreement'):
+                    levy_diag[_ch].append(
+                        inference_utils.levy_sigma_under_boxes(
+                            pred_box_tensor, levy_uncertainty,
+                            hypes['postprocess']['gt_range'],
+                            channel=_ch, reduce=sparsify_reduce))
+                levy_diag['coverage'].append(
+                    inference_utils.levy_sigma_under_boxes(
+                        pred_box_tensor, levy_uncertainty,
+                        hypes['postprocess']['gt_range'],
+                        channel='coverage', reduce='center'))
+                # Alternative trust-map parameterisations (cosine disagreement,
+                # shifted / re-tempered intensity) computed in this same pass.
+                for _vn, _vmap in (levy_uncertainty.get('variants', {}) or {}).items():
+                    for _ch in ('evidence', 'disagreement', 'sigma'):
+                        levy_diag['variants'].setdefault(f'{_vn}.{_ch}', []).append(
+                            inference_utils.levy_sigma_under_boxes(
+                                pred_box_tensor, _vmap,
+                                hypes['postprocess']['gt_range'],
+                                channel=_ch, reduce=sparsify_reduce))
+
+            # Evidence gate (blueprint Protocol 1, with the disagreement term
+            # dropped): score *= (1 - exp(-Lambda))^k. Lambda under the box is a
+            # spatial presence mask -- cells no agent supports get pushed down the
+            # ranking. Runs before the sparsification filter so both see the same
+            # boxes, and before AP so the re-ranking is what gets scored.
+            if opt.levy_evidence_gate is not None and levy_uncertainty is not None \
+                    and pred_box_tensor is not None and pred_score is not None \
+                    and pred_box_tensor.shape[0] > 0:
+                _lam = inference_utils.levy_sigma_under_boxes(
+                    pred_box_tensor, levy_uncertainty,
+                    hypes['postprocess']['gt_range'],
+                    channel='evidence', reduce=sparsify_reduce)
+                _lam = _lam * float(opt.levy_evidence_scale)
+                _factor = np.power(1.0 - np.exp(-_lam),
+                                   float(opt.levy_evidence_gate))
+                pred_score = pred_score * torch.as_tensor(
+                    _factor, dtype=pred_score.dtype, device=pred_score.device)
+                infer_result['pred_score'] = pred_score
+                levy_gate_tally['frames'] += 1
+                levy_gate_tally['boxes'] += int(_factor.shape[0])
+                levy_gate_tally['factor_sum'] += float(_factor.sum())
+
+            # Disagreement penalty (blueprint's second factor, on a channel
+            # where it points the right way). Composes with the evidence gate --
+            # measured on the clean split, the penalty only pays when the gate is
+            # also on, so applying it alone is not a supported configuration.
+            if opt.levy_disagreement_channel and levy_uncertainty is not None \
+                    and pred_box_tensor is not None and pred_score is not None \
+                    and pred_box_tensor.shape[0] > 0:
+                _vmap = (levy_uncertainty.get('variants', {}) or {}).get(
+                    opt.levy_disagreement_channel)
+                if _vmap is None:
+                    if not levy_dis_tally['warned']:
+                        print(f"[levy] --levy_disagreement_channel "
+                              f"{opt.levy_disagreement_channel!r} is not in "
+                              f"levy.uncertainty_variants; penalty skipped.")
+                        levy_dis_tally['warned'] = True
+                else:
+                    _dis = inference_utils.levy_sigma_under_boxes(
+                        pred_box_tensor, _vmap,
+                        hypes['postprocess']['gt_range'],
+                        channel='disagreement', reduce=sparsify_reduce)
+                    _dfac = np.exp(-opt.levy_disagreement_beta * _dis
+                                   / max(opt.levy_disagreement_norm, 1e-9))
+                    pred_score = pred_score * torch.as_tensor(
+                        _dfac, dtype=pred_score.dtype, device=pred_score.device)
+                    infer_result['pred_score'] = pred_score
+                    levy_dis_tally['frames'] += 1
+                    levy_dis_tally['boxes'] += int(_dfac.shape[0])
+                    levy_dis_tally['factor_sum'] += float(_dfac.sum())
 
             # Sparsification Filter: prune / down-weight boxes that fall in
             # high-sigma zones of the Levy trust map, then let AP see the result.
@@ -412,7 +608,7 @@ def main():
                         hypes['postprocess']['gt_range'],
                         sigma_threshold=sparsify_thresh, mode=sparsify_mode,
                         attenuation=sparsify_atten, channel=sparsify_channel,
-                        reduce=sparsify_reduce)
+                        reduce=sparsify_reduce, direction=sparsify_direction)
                 infer_result['pred_box_tensor'] = pred_box_tensor
                 infer_result['pred_score'] = pred_score
                 levy_sparsify_tally['frames'] += 1
@@ -499,16 +695,54 @@ def main():
 
     if opt.levy_diag:
         report_levy_error_diagnostic(levy_diag, sparsify_thresh,
-                                     opt.levy_diag_iou, levy_npy_path)
+                                     opt.levy_diag_iou, levy_npy_path,
+                                     direction=sparsify_direction)
+        if levy_diag['sigma']:
+            if not os.path.exists(levy_npy_path):
+                os.makedirs(levy_npy_path)
+            _raw_path = os.path.join(levy_npy_path, 'levy_diag_boxes.npz')
+            np.savez(
+                _raw_path,
+                sigma=np.concatenate(levy_diag['sigma']),
+                score=np.concatenate(levy_diag['score']),
+                evidence=np.concatenate(levy_diag['evidence']),
+                disagreement=np.concatenate(levy_diag['disagreement']),
+                coverage=np.concatenate(levy_diag['coverage']),
+                n_boxes_per_frame=np.array(
+                    [a.shape[0] for a in levy_diag['sigma']], dtype=np.int64),
+                gt_total=np.int64(levy_diag['gt_total']),
+                **{f'is_tp_{int(round(iou * 100)):03d}':
+                   np.concatenate(levy_diag['is_tp_by_iou'][iou])
+                   for iou in LEVY_DIAG_IOUS},
+                **{f'var__{k}': np.concatenate(v)
+                   for k, v in levy_diag['variants'].items()})
+            print(f"  raw per-box (sigma, evidence, disagreement, coverage, "
+                  f"score, is_tp@30/50/70, boxes/frame"
+                  + (f", {len(levy_diag['variants'])} variant channels"
+                     if levy_diag['variants'] else "")
+                  + f") -> {_raw_path}")
+
+    if levy_gate_tally['frames']:
+        t = levy_gate_tally
+        print(f"\n[levy] evidence gate: {t['boxes']} boxes over {t['frames']} "
+              f"frames, mean score multiplier "
+              f"{t['factor_sum'] / max(t['boxes'], 1):.4f}")
+
+    if levy_dis_tally['frames']:
+        t = levy_dis_tally
+        print(f"[levy] disagreement penalty: {t['boxes']} boxes over "
+              f"{t['frames']} frames, mean score multiplier "
+              f"{t['factor_sum'] / max(t['boxes'], 1):.4f}")
 
     if sparsify_on and levy_sparsify_tally['frames']:
         t = levy_sparsify_tally
         frac = t['flagged'] / max(t['boxes'], 1)
         verb = 'dropped' if sparsify_mode == 'drop' else \
             f"down-weighted (x{sparsify_atten:g})"
+        _cmp = '<' if sparsify_direction == 'low' else '>'
         print(f"\n[levy] sparsification filter: {t['flagged']}/{t['boxes']} "
               f"predicted boxes {verb} over {t['frames']} frames ({frac:.1%}), "
-              f"sigma_hat > {sparsify_thresh:g}")
+              f"sigma_hat {_cmp} {sparsify_thresh:g}")
 
 if __name__ == '__main__':
     main()

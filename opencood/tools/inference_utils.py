@@ -11,6 +11,7 @@ import torch
 
 from opencood.utils.common_utils import torch_tensor_to_numpy
 from opencood.utils import common_utils
+from opencood.tools import levy_metrics
 from opencood.utils.transformation_utils import get_relative_transformation
 from opencood.utils.box_utils import create_bbx, project_box3d, nms_rotated
 from opencood.utils.camera_utils import indices_to_depth
@@ -528,14 +529,23 @@ def sparsify_predictions_by_levy(pred_box_tensor, pred_score, levy_uncertainty,
                                  pc_range,
                                  sigma_threshold=LEVY_SPARSIFY_DEFAULT_SIGMA,
                                  mode='attenuate', attenuation=0.5,
-                                 channel='sigma', reduce='mean'):
+                                 channel='sigma', reduce='mean',
+                                 direction='low'):
     """
     Sparsification Filter (blueprint Sec. 8, "Sensing Triage").
 
-    Look up the Levy sigma map under each predicted box; where the box sits in a
-    high-uncertainty zone (``sigma_hat > sigma_threshold`` -- 0.20 is the p90 of
-    the overlap-cell sigma for the m1_base_levy checkpoint), either drop the box
-    or lower its confidence.
+    Look up the Levy sigma map under each predicted box and flag the boxes that
+    sit on the wrong side of ``sigma_threshold``, then either drop them or lower
+    their confidence.
+
+    ``direction`` picks which side is "wrong":
+
+    * ``'low'``  -- flag ``sigma_hat < sigma_threshold``. The error diagnostic on
+      the m1_base_levy checkpoint shows sigma is *inverted*: high sigma marks the
+      correct boxes and the low-sigma band is the noisy background where the
+      false positives live, so this is the direction that actually removes FPs.
+    * ``'high'`` -- flag ``sigma_hat > sigma_threshold``. The original blueprint
+      behaviour (down-weight the high-uncertainty zone).
 
     Parameters
     ----------
@@ -556,6 +566,9 @@ def sparsify_predictions_by_levy(pred_box_tensor, pred_score, levy_uncertainty,
         Multiplicative confidence penalty in ``'attenuate'`` mode.
     channel, reduce : str
         Passed to :func:`levy_sigma_under_boxes`.
+    direction : str
+        ``'low'`` -> flag ``sigma_hat < sigma_threshold``;
+        ``'high'`` -> flag ``sigma_hat > sigma_threshold``.
 
     Returns
     -------
@@ -564,19 +577,25 @@ def sparsify_predictions_by_levy(pred_box_tensor, pred_score, levy_uncertainty,
         box was dropped).
     info : dict
         ``{'sigma', 'flagged', 'n_total', 'n_flagged', 'mode',
-        'sigma_threshold'}``.
+        'sigma_threshold', 'direction'}``.
     """
     info = {'sigma': np.zeros(0, dtype=np.float64),
             'flagged': np.zeros(0, dtype=bool),
             'n_total': 0, 'n_flagged': 0, 'mode': mode,
-            'sigma_threshold': float(sigma_threshold)}
+            'sigma_threshold': float(sigma_threshold),
+            'direction': direction}
     if pred_box_tensor is None or levy_uncertainty is None \
             or pred_box_tensor.shape[0] == 0:
         return pred_box_tensor, pred_score, info
 
     sigma = levy_sigma_under_boxes(pred_box_tensor, levy_uncertainty, pc_range,
                                    channel=channel, reduce=reduce)
-    flagged = sigma > float(sigma_threshold)
+    if direction == 'low':
+        flagged = sigma < float(sigma_threshold)
+    elif direction == 'high':
+        flagged = sigma > float(sigma_threshold)
+    else:
+        raise ValueError(f"unknown sparsify direction {direction!r}")
     info.update({'sigma': sigma, 'flagged': flagged,
                  'n_total': int(sigma.shape[0]),
                  'n_flagged': int(flagged.sum())})
@@ -644,39 +663,21 @@ def levy_match_tp_fp(pred_box_tensor, pred_score, gt_box_tensor, iou_thresh):
     return is_tp
 
 
-def _average_ranks(values):
-    """Ranks of ``values``, ties sharing their mean rank (1-based)."""
-    order = np.argsort(values, kind='mergesort')
-    ranks = np.empty(values.shape[0], dtype=np.float64)
-    ranks[order] = np.arange(1, values.shape[0] + 1)
-    ordered = values[order]
-    start = 0
-    while start < ordered.shape[0]:
-        stop = start
-        while stop + 1 < ordered.shape[0] and ordered[stop + 1] == ordered[start]:
-            stop += 1
-        if stop > start:
-            ranks[order[start:stop + 1]] = (start + stop + 2) / 2.0
-        start = stop + 1
-    return ranks
+# The canonical implementations live in levy_metrics, which is the leaf module
+# of the Levy tooling; these aliases keep the private names this file already
+# used. One definition, so the diagnostic here and the offline harnesses cannot
+# drift apart.
+_average_ranks = levy_metrics.average_ranks
+_auroc = levy_metrics.auroc
 
 
 def _trapezoid(y, x):
+    """Area under y(x) by the trapezoid rule; used for the AUSE integral."""
     return float(np.sum((y[:-1] + y[1:]) / 2.0 * np.diff(x)))
 
 
-def _auroc(score, positive):
-    """P(score of a random positive > score of a random negative), ties at 0.5."""
-    n_pos = int(positive.sum())
-    n_neg = int(positive.shape[0] - n_pos)
-    if n_pos == 0 or n_neg == 0:
-        return float('nan')
-    ranks = _average_ranks(score)
-    return float((ranks[positive].sum() - n_pos * (n_pos + 1) / 2.0)
-                 / (n_pos * n_neg))
-
-
-def levy_error_metrics(sigma, is_tp, sigma_threshold, n_steps=101):
+def levy_error_metrics(sigma, is_tp, sigma_threshold, n_steps=101,
+                       direction='low'):
     """
     Does sigma predict detection error?
 
@@ -687,12 +688,17 @@ def levy_error_metrics(sigma, is_tp, sigma_threshold, n_steps=101):
     AUROC is the decisive number: 0.5 means sigma carries no information about
     whether a box is wrong, above 0.5 means high sigma marks false positives,
     and below 0.5 means the signal is *inverted* -- high sigma marks the boxes
-    that are right, so filtering on it removes true positives.
+    that are right, so a ``direction='low'`` filter (flag sigma below the
+    threshold) is the one that removes false positives.
 
     AUSE is the area between the sigma-ordered and oracle-ordered
-    sparsification curves: progressively discard the most-uncertain boxes and
-    watch the false-positive rate of what is left. 0 is a perfect ranking;
-    larger is worse.
+    sparsification curves: progressively discard the boxes the filter would
+    flag first -- most-uncertain for ``direction='high'``, least-uncertain for
+    ``direction='low'`` -- and watch the false-positive rate of what is left.
+    0 is a perfect ranking; larger is worse.
+
+    ``direction`` also selects which side of ``sigma_threshold`` the reported
+    operating point (``at_threshold``) flags.
     """
     sigma = np.asarray(sigma, dtype=np.float64)
     is_tp = np.asarray(is_tp, dtype=bool)
@@ -720,10 +726,16 @@ def levy_error_metrics(sigma, is_tp, sigma_threshold, n_steps=101):
         return np.array([errors[int(round(f * n)):].mean()
                          if int(round(f * n)) < n else 0.0 for f in fractions])
 
-    by_sigma = curve(np.argsort(-sigma, kind='mergesort'))
+    # Order the boxes the way the filter would flag them first: highest sigma
+    # first for 'high', lowest sigma first for 'low'.
+    flag_order_key = sigma if direction == 'low' else -sigma
+    by_sigma = curve(np.argsort(flag_order_key, kind='mergesort'))
     by_oracle = curve(np.argsort(-is_fp.astype(np.float64), kind='mergesort'))
 
-    flagged = sigma > float(sigma_threshold)
+    if direction == 'low':
+        flagged = sigma < float(sigma_threshold)
+    else:
+        flagged = sigma > float(sigma_threshold)
     n_flagged = int(flagged.sum())
     precision = float(is_fp[flagged].mean()) if n_flagged else float('nan')
 
@@ -737,6 +749,7 @@ def levy_error_metrics(sigma, is_tp, sigma_threshold, n_steps=101):
                         for q in (10, 25, 50, 75, 90, 99)},
         'at_threshold': {
             'sigma_threshold': float(sigma_threshold),
+            'direction': direction,
             'flagged_frac': n_flagged / n,
             'precision': precision,
             'lift': precision / base_rate if base_rate > 0 else float('nan'),

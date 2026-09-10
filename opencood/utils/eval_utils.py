@@ -137,12 +137,27 @@ def calculate_ap(result_stat, iou):
     return ap, mrec, mprec
 
 
+def false_positive_rate(result_stat, iou):
+    """
+    Average false positive rate at ``iou``: false positives / predicted boxes,
+    pooled over every frame seen by :func:`caluclate_tp_fp`.
+    """
+    fp = np.array(result_stat[iou]['fp'])
+    if fp.shape[0] == 0:
+        return float('nan')
+    return float(fp.sum() / fp.shape[0])
+
+
 def eval_final_results(result_stat, save_path, infer_info=None):
     dump_dict = {}
 
     ap_30, mrec_30, mpre_30 = calculate_ap(result_stat, 0.30)
     ap_50, mrec_50, mpre_50 = calculate_ap(result_stat, 0.50)
     ap_70, mrec_70, mpre_70 = calculate_ap(result_stat, 0.70)
+
+    fpr_30 = false_positive_rate(result_stat, 0.30)
+    fpr_50 = false_positive_rate(result_stat, 0.50)
+    fpr_70 = false_positive_rate(result_stat, 0.70)
 
     dump_dict.update({'ap30': ap_30,
                       'ap_50': ap_50,
@@ -151,6 +166,9 @@ def eval_final_results(result_stat, save_path, infer_info=None):
                       'mrec_50': mrec_50,
                       'mpre_70': mpre_70,
                       'mrec_70': mrec_70,
+                      'fp_rate_30': fpr_30,
+                      'fp_rate_50': fpr_50,
+                      'fp_rate_70': fpr_70,
                       })
     if infer_info is None:
         yaml_utils.save_yaml(dump_dict, os.path.join(save_path, 'eval.yaml'))
@@ -160,5 +178,9 @@ def eval_final_results(result_stat, save_path, infer_info=None):
     print('The Average Precision at IOU 0.3 is %.2f, '
           'The Average Precision at IOU 0.5 is %.2f, '
           'The Average Precision at IOU 0.7 is %.2f' % (ap_30, ap_50, ap_70))
+    print('The average False Positive rate at IOU 0.3 is %.2f, '
+          'The average False Positive rate at IOU 0.5 is %.2f, '
+          'The average False Positive rate at IOU 0.7 is %.2f'
+          % (fpr_30, fpr_50, fpr_70))
 
     return ap_30, ap_50, ap_70
