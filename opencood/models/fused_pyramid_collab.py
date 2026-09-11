@@ -16,6 +16,7 @@ from opencood.models.sub_modules.feature_alignnet import AlignNet
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
 from opencood.models.sub_modules.naive_compress import NaiveCompressor
 from opencood.models.fuse_modules.levy_pyramid_fuse import LevyPyramidFusion
+from opencood.models.LevyHooks import build_intra_modality_fusion
 from opencood.models.heter_encoders import PointPillar, LiftSplatShoot
 from opencood.utils.transformation_utils import normalize_pairwise_tfm
 from opencood.utils.model_utils import check_trainable_module, fix_bn
@@ -72,6 +73,15 @@ class FusedPyramidCollab(nn.Module):
                         nn.BatchNorm2d(fusion_args['out_channels']),
                         nn.ReLU(inplace=True),
                     ))
+
+            # Upstream hook: Levy intra-vehicle modality fusion. None unless
+            # this modality's `levy_intra: {enable: true}` is set, in which case
+            # it replaces the concat + 1x1 conv above. NOT zero-retraining --
+            # see opencood/models/LevyHooks/intra_modality.py.
+            setattr(self, f"levy_intra_{modality_name}",
+                    build_intra_modality_fusion(
+                        model_setting.get('levy_intra'), fusion_args,
+                        where=f'FusedPyramidCollab/{modality_name}'))
 
             # BEV backbone
             setattr(self, f"backbone_{modality_name}",
@@ -142,6 +152,9 @@ class FusedPyramidCollab(nn.Module):
                 self.fix_modules += [f'encoder_lidar_{modality_name}',
                                      f'backbone_{modality_name}']
 
+        # Filled by encode_modality when levy_intra is enabled.
+        self.levy_intra_output = None
+
         self.model_train_init()
         check_trainable_module(self)
 
@@ -194,10 +207,18 @@ class FusedPyramidCollab(nn.Module):
         crop_fn = torchvision.transforms.CenterCrop((target_H, target_W))
         cam_bev = crop_fn(cam_bev)
 
-        # --- Concat + 1×1 conv ---
-        fused = torch.cat([lidar_bev, cam_bev], dim=1)         # [N, C_l+C_c, H, W]
-        fusion_conv = getattr(self, f"fusion_conv_{modality_name}")
-        fused = fusion_conv(fused)                              # [N, C_out, H, W]
+        # --- Modality fusion: Levy intensity pooling, or concat + 1x1 conv ---
+        levy_intra = getattr(self, f"levy_intra_{modality_name}", None)
+        if levy_intra is not None:
+            fused, evidence, disagreement = levy_intra([lidar_bev, cam_bev])
+            # Per-agent sensor-conflict map: high where the camera's depth smear
+            # and the point cloud point in different feature directions.
+            self.levy_intra_output = {'evidence': evidence,
+                                      'disagreement': disagreement}
+        else:
+            fused = torch.cat([lidar_bev, cam_bev], dim=1)      # [N, C_l+C_c, H, W]
+            fusion_conv = getattr(self, f"fusion_conv_{modality_name}")
+            fused = fusion_conv(fused)                          # [N, C_out, H, W]
 
         return fused
 

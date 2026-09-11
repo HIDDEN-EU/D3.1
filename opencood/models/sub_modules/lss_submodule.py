@@ -49,6 +49,10 @@ class CamEncode(nn.Module):  # 提取图像特征进行图像编码
         self.mode = mode
         self.use_gt_depth = use_gt_depth
         self.depth_supervision = depth_supervision # in the case of not use gt depth
+        # Levy depth-pool hook slot; set by LiftSplatShoot, None when disabled.
+        # opencood/models/LevyHooks/depth_pool.py
+        self.levy_depth = None
+        self.ray_evidence = None
 
         
         self.trunk = EfficientNet.from_pretrained("efficientnet-b0")  # 使用 efficientnet 提取特征
@@ -63,6 +67,11 @@ class CamEncode(nn.Module):  # 提取图像特征进行图像编码
 
 
     def get_depth_dist(self, x, eps=1e-5):  # 对深度维进行softmax，得到每个像素不同深度的概率
+        # Levy depth-pool hook: when built, the weights become the normalised
+        # Poisson intensity instead of softmax, and Lambda_ray is stashed.
+        if getattr(self, 'levy_depth', None) is not None:
+            weights, self.ray_evidence, _, _ = self.levy_depth(x, depth_dim=1)
+            return weights
         return F.softmax(x, dim=1)
 
     def get_gt_depth_dist(self, x):  # 对深度维进行onehot，得到每个像素不同深度的概率
@@ -150,6 +159,10 @@ class CamEncode_Resnet101(nn.Module):  # 提取图像特征进行图像编码
         self.mode = mode
         self.use_gt_depth = use_gt_depth
         self.depth_supervision = depth_supervision # in the case of not use gt depth
+        # Levy depth-pool hook slot; set by LiftSplatShoot, None when disabled.
+        # opencood/models/LevyHooks/depth_pool.py
+        self.levy_depth = None
+        self.ray_evidence = None
 
         trunk = resnet101(pretrained=False, zero_init_residual=True)  # 使用 resnet101 提取特征
         # in fact we only use first two layers. Equal to resnet50!
@@ -168,6 +181,11 @@ class CamEncode_Resnet101(nn.Module):  # 提取图像特征进行图像编码
 
 
     def get_depth_dist(self, x, eps=1e-5):  # 对深度维进行softmax，得到每个像素不同深度的概率
+        # Levy depth-pool hook: when built, the weights become the normalised
+        # Poisson intensity instead of softmax, and Lambda_ray is stashed.
+        if getattr(self, 'levy_depth', None) is not None:
+            weights, self.ray_evidence, _, _ = self.levy_depth(x, depth_dim=1)
+            return weights
         return F.softmax(x, dim=1)
 
     def get_gt_depth_dist(self, x):  # 对深度维进行onehot，得到每个像素不同深度的概率

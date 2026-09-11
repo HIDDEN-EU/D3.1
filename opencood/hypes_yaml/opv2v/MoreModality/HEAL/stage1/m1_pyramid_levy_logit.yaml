@@ -257,6 +257,35 @@ model:
           reduce: mean         # 'mean' | 'max' | 'center' over the box footprint
           channel: sigma       # 'sigma' (raw sigma_hat) | 'sigma_calibrated'
 
+        # Upstream pre-transmission gateway (blueprint Sec. 5). Unlike every
+        # option above -- which post-processes detection scores and leaves the
+        # network untouched -- this multiplies each agent's OWN BEV features by
+        # (1 - exp(-Lambda_local))^k before they are warped into the ego frame,
+        # so it changes what the backbone and heads see. Read at both train and
+        # inference time; inference.py's --levy_gateway* flags override it.
+        #
+        # Calibration is the whole game and does not transfer between score
+        # modes (tau = 0.5):
+        #   score_mode heal,  gamma 4.0, S in (0,1]  ->  Lambda in [0.5, 27.3]
+        #                                                gate in [0.63, 1.00]
+        #   score_mode logit, gamma 0.25, S ~ -5     ->  Lambda ~ 0.14
+        #                                                gate ~ 0.13 EVERYWHERE
+        # The second row is not a filter, it is a global rescale of the feature
+        # map that a frozen checkpoint's BatchNorm statistics have never seen.
+        # gate_ref fixes that: it renormalises the gate to 1 at a reference
+        # score, so only cells BELOW the reference are attenuated. Set it
+        # whenever Lambda's dynamic range does not already straddle 1.
+        gateway:
+          enable: false
+          gate_power: 0.5          # k; 0 is the identity
+          temp_gamma: 0.25         # defaults to 4.0 (heal) / 0.25 (logit)
+          rate_tau: 0.5
+          score_mode: null         # defaults to the fusion's own score_mode
+          gate_ref: null           # null = the literal blueprint gate
+          pruning_threshold: 0.6   # Theta for the reported transmission mask
+          hard_prune: false        # true actually zeroes cells outside the mask
+          levels: null             # null = all pyramid levels; e.g. [0]
+
     shrink_header:
       kernal_size: [ 3 ]
       stride: [ 1 ]

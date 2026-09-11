@@ -97,6 +97,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from opencood.models.fuse_modules.fusion_in_one import regroup
+from opencood.models.LevyHooks import build_gateway_hook
 from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
 from opencood.models.sub_modules.torch_transformation_utils import \
     warp_affine_simple
@@ -466,6 +467,15 @@ class LevyPyramidFusion(PyramidFusion):
                 'disagreement_mode': v.get('disagreement_mode', 'raw'),
             })
 
+        # Upstream hook: pre-transmission gate (blueprint Sec. 5). None unless
+        # `levy.gateway.enable` is set -- see opencood/models/LevyHooks/.
+        # The hook owns its own policy (which levels, which agents) and its
+        # bandwidth stats; everything this module does with it is the three
+        # lines in forward_collab.
+        self.gateway = build_gateway_hook(
+            levy_cfg.get('gateway'), num_levels=self.num_levels,
+            default_score_mode=self.score_mode, where='LevyPyramidFusion')
+
         self.uncertainty_output = None
 
         print(f'Levy pyramid fusion: tau={self.tau}, gamma={gamma}, '
@@ -551,11 +561,23 @@ class LevyPyramidFusion(PyramidFusion):
         occ_map_list = []
         per_scale = []
         per_scale_variants = {}
+        if self.gateway is not None:
+            self.gateway.begin_forward()
 
         for i in range(self.num_levels):
             occ_map = eval(f"self.single_head_{i}")(feature_list[i])  # [N, 1, H, W]
             occ_map_list.append(occ_map)
             score = torch.sigmoid(occ_map) + 1e-4
+
+            # Upstream hook: pre-transmission gate. Returns `feature_list[i]`
+            # untouched for levels/agents its policy exempts, so there is no
+            # branch here beyond "is the hook built at all".
+            # See opencood/models/LevyHooks/feature_gateway.py.
+            if self.gateway is not None:
+                feature_list[i] = self.gateway.apply(
+                    i, feature_list[i], occ_map, record_len,
+                    agent_modality_list=agent_modality_list,
+                    cam_crop_info=cam_crop_info)
 
             if crop_mask_flag and not self.training:
                 cam_crop_mask = torch.ones_like(occ_map, device=occ_map.device)
@@ -594,6 +616,8 @@ class LevyPyramidFusion(PyramidFusion):
 
         fused_feature = self.decode_multiscale_feature(fused_feature_list)
 
+        gateway_stats = self.gateway.stats if self.gateway is not None else None
+
         if self.compute_uncertainty:
             self.uncertainty_output = self._build_trust_map(per_scale)
             if per_scale_variants:
@@ -601,6 +625,8 @@ class LevyPyramidFusion(PyramidFusion):
                     name: self._build_trust_map(ps)
                     for name, ps in per_scale_variants.items()
                 }
+            if gateway_stats:
+                self.uncertainty_output['gateway'] = gateway_stats
         else:
             self.uncertainty_output = None
 

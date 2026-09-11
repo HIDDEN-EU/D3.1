@@ -110,6 +110,68 @@ def test_parser():
                              'on the OPV2V-H clean split -- fix it from a val '
                              'split rather than recomputing per run, or beta '
                              'stops meaning the same thing across conditions.')
+    # ---- Upstream Levy hooks (blueprint Sec. 3-6) -------------------------- #
+    # These override model.args.fusion_backbone.levy.gateway in the loaded
+    # config, so one checkpoint can be swept over (gamma, k) without editing a
+    # yaml per point. Unlike every other --levy_* flag above, which post-processes
+    # detection scores, the gateway changes the features the heads see.
+    parser.add_argument('--levy_gateway', action='store_true',
+                        help='enable the upstream pre-transmission feature '
+                             'gateway: each agent multiplies its own BEV features '
+                             'by (1-exp(-Lambda_local))^k before they are warped '
+                             'into the ego frame.')
+    parser.add_argument('--levy_gateway_gamma', type=float, default=None,
+                        help='temperature for the gateway intensity. Defaults to '
+                             '4.0 in heal score_mode, 0.25 in logit -- see the '
+                             'calibration table in levy_upstream.py.')
+    parser.add_argument('--levy_gateway_k', type=float, default=None,
+                        help='gate exponent k. 0 disables the gate (identity), '
+                             'larger sharpens it. Blueprint: 0.5 for heal, '
+                             '1.0 for logit.')
+    parser.add_argument('--levy_gateway_tau', type=float, default=None,
+                        help='base Poisson rate for the gateway (default 0.5).')
+    parser.add_argument('--levy_gateway_score_mode', type=str, default=None,
+                        choices=['heal', 'logit'],
+                        help="whether the gateway exponentiates sigmoid(occ) "
+                             "('heal') or the raw occ logit ('logit'). Defaults "
+                             "to the fusion backbone's own score_mode.")
+    parser.add_argument('--levy_gateway_ref', type=float, default=None,
+                        help='reference score at which the gate is renormalised '
+                             'to 1, so only cells below it are attenuated. Omit '
+                             'for the literal blueprint gate, which also scales '
+                             'the foreground down whenever Lambda is small.')
+    parser.add_argument('--levy_gateway_threshold', type=float, default=None,
+                        help='Theta for the binary transmission mask (bandwidth '
+                             'accounting; only prunes features with '
+                             '--levy_gateway_hard_prune).')
+    parser.add_argument('--levy_gateway_hard_prune', action='store_true',
+                        help='actually zero the features outside the '
+                             'transmission mask, i.e. sparse transmission.')
+    parser.add_argument('--levy_gateway_ego_exempt', action='store_true',
+                        help="do not gate the ego's own features -- it never "
+                             "transmits to itself, so only the collaborators' "
+                             "features pass the pre-transmission gate.")
+    parser.add_argument('--levy_gateway_cameras_only', action='store_true',
+                        help='gate only camera agents. Exact no-op on a '
+                             'LiDAR-only alliance (nothing is a camera), so this '
+                             'is the setting that can be left on regardless of '
+                             'composition.')
+    parser.add_argument('--levy_gateway_levels', type=str, default=None,
+                        help='comma-separated pyramid levels to gate, e.g. "0". '
+                             'Default: every level.')
+    parser.add_argument('--levy_depth', action='store_true',
+                        help='replace the LSS depth softmax with Levy Poisson '
+                             'intensity pooling on every camera modality '
+                             '(blueprint Sec. 3).')
+    parser.add_argument('--levy_depth_gamma', type=float, default=None,
+                        help='temperature for the depth intensity. In logit '
+                             'score_mode gamma=1.0 reproduces stock LSS exactly, '
+                             'so it doubles as a parity check.')
+    parser.add_argument('--levy_depth_score_mode', type=str, default=None,
+                        choices=['heal', 'logit'],
+                        help="'logit' exponentiates the raw depth logits (a pure "
+                             "temperature on the existing softmax); 'heal' "
+                             "squashes them to (0,1] first.")
     parser.add_argument('--pos_std', type=float, default=0.0,
                         help='std (metres) of the zero-mean Gaussian noise added '
                              'to every agent\'s x/y localisation before fusion '
@@ -122,6 +184,50 @@ def test_parser():
                         help="detection range is [-102.4, +102.4, -102.4, +102.4]")
     parser.add_argument('--no_score', action='store_true',
                         help="whether print the score of prediction")
+    parser.add_argument('--use_cav', type=int, default=None,
+                        help='evaluate with exactly this many collaborators, as '
+                             'inference_heter_in_order.py does. Switches the '
+                             'dataset to its *infer variant, which uses every '
+                             'CAV to generate ground truth but lets only the '
+                             'first --use_cav of them contribute features. '
+                             'Without it the natural per-frame CAV count (up to '
+                             'max_cav) participates, which is a different -- and '
+                             'on OPV2V harder -- operating point than the one '
+                             "HEAL's published tables use.")
+    parser.add_argument('--lidar_corrupt', type=float, nargs='?', const=-1.0,
+                        default=None, metavar='RATIO',
+                        help='enable LiDAR point dropout at this ratio, e.g. '
+                             '--lidar_corrupt 0.5. Bare --lidar_corrupt keeps '
+                             "the config's own dropout_ratio. Overrides the "
+                             'config; both dataset variants honour it '
+                             'identically, so it no longer depends on --use_cav.')
+    parser.add_argument('--no_lidar_corrupt', action='store_true',
+                        help='force LiDAR dropout off, overriding a config that '
+                             'enables it.')
+    parser.add_argument('--assignment', type=str, default=None,
+                        help='override heter.assignment_path with this json, to '
+                             'evaluate a specific alliance composition (e.g. a '
+                             'fixed LiDAR+camera pair). Pair with --use_cav to '
+                             'fix how many of the listed agents collaborate.')
+    parser.add_argument('--comm_range', type=float, default=None,
+                        help='override comm_range (metres). The config ships 70, '
+                             'at which ~40%% of OPV2V test frames have no '
+                             'collaborator within range and the ego runs alone; '
+                             'inference_heter_in_order.py uses 180, which is why '
+                             "HEAL's use_cav tables get consistent agent counts. "
+                             'Set it when the alliance composition itself is the '
+                             'variable under test.')
+    parser.add_argument('--in_order_assign', action='store_true',
+                        help="swap in the *_in_order.json modality assignment, "
+                             "comm_range=180 and ego_modality=m1, as "
+                             "inference_heter_in_order.py does. Required to "
+                             "reproduce HEAL's published use_cav tables. NOTE "
+                             "the in-order assignment for OPV2V is LiDAR-only "
+                             "(m1/m3), so it removes all camera agents.")
+    parser.add_argument('--max_frames', type=int, default=None,
+                        help='stop after this many frames. Smoke-testing only -- '
+                             'the AP/FP it reports are on a truncated split and '
+                             'are not comparable to a full run.')
     parser.add_argument('--note', default="", type=str, help="any other thing?")
     opt = parser.parse_args()
     return opt
@@ -321,6 +427,69 @@ def main():
     if 'box_align' in hypes.keys():
         hypes['box_align']['val_result'] = hypes['box_align']['test_result']
 
+    # Upstream gateway overrides. Written into the config before the model is
+    # built, since LevyPyramidFusion reads the block in __init__.
+    if opt.levy_gateway or any(v is not None for v in
+                               (opt.levy_gateway_gamma, opt.levy_gateway_k,
+                                opt.levy_gateway_tau, opt.levy_gateway_score_mode,
+                                opt.levy_gateway_ref, opt.levy_gateway_threshold,
+                                opt.levy_gateway_levels)) \
+            or opt.levy_gateway_hard_prune or opt.levy_gateway_ego_exempt \
+            or opt.levy_gateway_cameras_only:
+        try:
+            _fb = hypes['model']['args']['fusion_backbone']
+        except (KeyError, TypeError):
+            _fb = None
+        if _fb is None:
+            print('[levy] --levy_gateway* ignored: this config has no '
+                  'model.args.fusion_backbone block.')
+        else:
+            _gw = dict(_fb.setdefault('levy', {}).get('gateway', {}) or {})
+            _gw['enable'] = True
+            if opt.levy_gateway_gamma is not None:
+                _gw['temp_gamma'] = opt.levy_gateway_gamma
+            if opt.levy_gateway_k is not None:
+                _gw['gate_power'] = opt.levy_gateway_k
+            if opt.levy_gateway_tau is not None:
+                _gw['rate_tau'] = opt.levy_gateway_tau
+            if opt.levy_gateway_score_mode is not None:
+                _gw['score_mode'] = opt.levy_gateway_score_mode
+            if opt.levy_gateway_ref is not None:
+                _gw['gate_ref'] = opt.levy_gateway_ref
+            if opt.levy_gateway_threshold is not None:
+                _gw['pruning_threshold'] = opt.levy_gateway_threshold
+            if opt.levy_gateway_hard_prune:
+                _gw['hard_prune'] = True
+            if opt.levy_gateway_ego_exempt:
+                _gw['ego_exempt'] = True
+            if opt.levy_gateway_cameras_only:
+                _gw['cameras_only'] = True
+            if opt.levy_gateway_levels is not None:
+                _gw['levels'] = [int(x) for x in
+                                 opt.levy_gateway_levels.split(',') if x != '']
+            _fb['levy']['gateway'] = _gw
+
+    # Depth-pool overrides, applied to every camera modality in the config.
+    if opt.levy_depth or opt.levy_depth_gamma is not None \
+            or opt.levy_depth_score_mode is not None:
+        _margs = hypes.get('model', {}).get('args', {}) or {}
+        _cam_mods = [k for k, v in _margs.items()
+                     if k.startswith('m') and k[1:].isdigit()
+                     and isinstance(v, dict) and v.get('sensor_type') == 'camera']
+        if not _cam_mods:
+            print('[levy] --levy_depth* ignored: no camera modality in this '
+                  'config.')
+        for _m in _cam_mods:
+            _ea = _margs[_m].setdefault('encoder_args', {})
+            _dp = dict(_ea.get('levy_depth', {}) or {})
+            _dp['enable'] = True
+            if opt.levy_depth_score_mode is not None:
+                _dp['score_mode'] = opt.levy_depth_score_mode
+            if opt.levy_depth_gamma is not None:
+                _dp['temp_gamma'] = opt.levy_depth_gamma
+            _ea['levy_depth'] = _dp
+            print(f'[levy] depth pooling armed on modality {_m}: {_dp}')
+
     print('Creating Model')
     model = train_utils.create_model(hypes)
     # we assume gpu is necessary
@@ -354,6 +523,62 @@ def main():
     else:
         hypes['noise_setting'] = {'add_noise': False}
     
+    # Fixed collaborator count. Mirrors inference_heter_in_order.py: the dataset
+    # core_method gains an 'infer' suffix, which selects the subclass that reads
+    # hypes['use_cav'] and skips feature extraction for agents past that index
+    # while still stacking their objects into the ground truth.
+    if opt.use_cav is not None:
+        _fusion_cm = hypes['fusion']['core_method']
+        if not _fusion_cm.endswith('infer'):
+            hypes['fusion']['core_method'] = _fusion_cm + 'infer'
+        hypes['use_cav'] = opt.use_cav
+        opt.note += f"_use_cav{opt.use_cav}"
+        print(f"[eval] fixed collaborator count: use_cav={opt.use_cav} "
+              f"(dataset {hypes['fusion']['core_method']})")
+
+    # The rest of inference_heter_in_order.py's setup. Kept behind its own flag
+    # because it is NOT cosmetic: the *_in_order.json assignment is a different
+    # experiment, not a reordering of the same one -- it contains only m1/m3
+    # LiDAR agents, so it removes every camera agent from the split and makes
+    # any camera-side hook (LevyDepthPool) a no-op.
+    if opt.comm_range is not None:
+        print(f"[eval] comm_range {hypes.get('comm_range')} -> {opt.comm_range}")
+        hypes['comm_range'] = opt.comm_range
+        opt.note += f"_cr{opt.comm_range:g}"
+
+    if opt.assignment is not None:
+        if not os.path.exists(opt.assignment):
+            raise SystemExit(f"--assignment: no such file {opt.assignment}")
+        hypes['heter']['assignment_path'] = opt.assignment
+        print(f"[eval] modality assignment: {opt.assignment}")
+
+    if opt.in_order_assign:
+        hypes['comm_range'] = 180
+        hypes['heter']['assignment_path'] = \
+            hypes['heter']['assignment_path'].replace(".json", "_in_order.json")
+        hypes = update_dict(hypes, {"ego_modality": 'm1'})
+        opt.note += "_inorder"
+        print(f"[eval] in-order assignment: "
+              f"{hypes['heter']['assignment_path']}, comm_range=180, ego=m1")
+
+    # LiDAR dropout. Both dataset variants now read the same key, so this is a
+    # plain config override rather than a second, independent switch. The
+    # datasets announce the resolved setting themselves at construction.
+    if opt.lidar_corrupt is not None and opt.no_lidar_corrupt:
+        raise SystemExit("--lidar_corrupt and --no_lidar_corrupt are mutually "
+                         "exclusive.")
+    if opt.no_lidar_corrupt:
+        hypes.setdefault('lidar_corrupt', {})['enabled'] = False
+    elif opt.lidar_corrupt is not None:
+        _lc = hypes.setdefault('lidar_corrupt', {})
+        _lc['enabled'] = True
+        if opt.lidar_corrupt >= 0:
+            _lc['dropout_ratio'] = opt.lidar_corrupt
+        elif 'dropout_ratio' not in _lc:
+            raise SystemExit("bare --lidar_corrupt needs a dropout_ratio in the "
+                             "config; pass --lidar_corrupt RATIO instead.")
+        opt.note += f"_corrupt{_lc['dropout_ratio']:g}"
+
     # build dataset for each noise setting
     print('Dataset Building')
     opencood_dataset = build_dataset(hypes, visualize=True, train=False)
@@ -411,6 +636,13 @@ def main():
         or _sp_cfg.get('direction', 'low')
     levy_sparsify_tally = {'frames': 0, 'boxes': 0, 'flagged': 0}
     levy_gate_tally = {'frames': 0, 'boxes': 0, 'factor_sum': 0.0}
+    # Upstream gateway accounting: per pyramid level, what fraction of
+    # cells clear the transmission threshold (the bandwidth number the
+    # blueprint's Step 1 asks for) and where Lambda_local actually lands.
+    # The last is the check that matters: the blueprint asserts gamma=4
+    # puts Lambda in [0.5, 27.3], and a measured mean near the floor means
+    # the gate is operating as a near-constant rescale, not a filter.
+    gateway_tally = {}
     levy_dis_tally = {'frames': 0, 'boxes': 0, 'factor_sum': 0.0, 'warned': False}
     if opt.levy_disagreement_channel:
         print(f"[levy] disagreement penalty armed: channel="
@@ -447,6 +679,10 @@ def main():
                  else ")"))
 
     for i, batch_data in enumerate(data_loader):
+        if opt.max_frames is not None and i >= opt.max_frames:
+            print(f"[levy] --max_frames {opt.max_frames} reached; stopping early. "
+                  f"The AP/FP below are on a truncated split.")
+            break
         print(f"{infer_info}_{i}")
         if batch_data is None:
             continue
@@ -489,6 +725,16 @@ def main():
             # None for a plain PyramidFusion backbone, which makes --save_levy
             # a no-op rather than an error.
             levy_uncertainty = infer_result.get('levy_uncertainty', None)
+
+            if levy_uncertainty is not None and 'gateway' in levy_uncertainty:
+                for _g in levy_uncertainty['gateway']:
+                    _acc = gateway_tally.setdefault(
+                        _g['level'], {'n': 0, 'kept': 0.0,
+                                      'ev_mean': 0.0, 'ev_max': 0.0})
+                    _acc['n'] += 1
+                    _acc['kept'] += _g['kept_frac']
+                    _acc['ev_mean'] += _g['evidence_mean']
+                    _acc['ev_max'] = max(_acc['ev_max'], _g['evidence_max'])
             if opt.save_levy and levy_uncertainty is not None:
                 # Summaries are a few floats, so they are worth taking on every
                 # frame; the maps themselves are only dumped on the vis interval.
@@ -689,6 +935,17 @@ def main():
 
     _, ap50, ap70 = eval_utils.eval_final_results(result_stat,
                                 opt.model_dir, infer_info)
+
+    if gateway_tally:
+        print("\n[levy] upstream gateway, averaged over the split")
+        print("  level   cells >= Theta   mean Lambda_local   max Lambda_local")
+        for lvl in sorted(gateway_tally):
+            a = gateway_tally[lvl]
+            print(f"  {lvl:<7d} {a['kept'] / a['n']:>13.1%}   "
+                  f"{a['ev_mean'] / a['n']:>17.3f}   {a['ev_max']:>16.3f}")
+        print("  (Theta is --levy_gateway_threshold; 'cells >= Theta' is the "
+              "fraction\n   a sparse transmission would send, counted over every "
+              "agent and cell.)")
 
     if opt.save_levy:
         report_levy_stats(levy_stats, levy_npy_path)
