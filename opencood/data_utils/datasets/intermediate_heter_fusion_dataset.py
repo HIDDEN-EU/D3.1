@@ -1,3 +1,5 @@
+from opencood.utils.lidar_corrupt import (announce_lidar_corrupt,
+                                          apply_lidar_corrupt)
 '''
 -*- coding: utf-8 -*-
 Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
@@ -47,7 +49,13 @@ def getIntermediateheterFusionDataset(cls):
     cls: the Basedataset.
     """
     class IntermediateheterFusionDataset(cls):
+        # Resolved in __init__; the class-level default keeps every code path
+        # safe if a config never reaches the heterogeneous branch.
+        _lidar_corrupt = (False, 0.0)
+
         def __init__(self, params, visualize, train=True):
+            self._lidar_corrupt = announce_lidar_corrupt(
+                params, 'intermediate_heter_fusion_dataset')
             super().__init__(params, visualize, train)
             # intermediate and supervise single
             self.supervise_single = True if ('supervise_single' in params['model']['args'] and params['model']['args']['supervise_single']) \
@@ -348,6 +356,8 @@ def getIntermediateheterFusionDataset(cls):
 
             # loop over all CAVs to process information
             for cav_id, selected_cav_base in base_data_dict.items():
+                apply_lidar_corrupt(selected_cav_base, *self._lidar_corrupt)
+
                 # check if the cav is within the communication range with ego
                 distance = \
                     math.sqrt((selected_cav_base['params']['lidar_pose'][0] -

@@ -1,3 +1,4 @@
+from opencood.utils.lidar_corrupt import apply_lidar_corrupt
 '''
 Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
     
@@ -53,6 +54,7 @@ def getIntermediateheterinferFusionDataset(cls):
         def __init__(self, params, visualize, train=True):
             super().__init__(params, visualize, train)
             self.use_cav = params['use_cav']
+
             self.force_all_same_agent_modality = False
             # e.g. 2, and self.max_cav = 5
             # we will use 5 cav to generate gt boxes, but only use 2 cav to do the fusion.
@@ -126,11 +128,7 @@ def getIntermediateheterinferFusionDataset(cls):
                                         'lidar_pose'][1] - ego_lidar_pose[
                                         1]) ** 2)
 
-                if (self.params.get('lidar_corrupt') or {}).get('enabled', False):
-                    ratio = self.params['lidar_corrupt']['dropout_ratio']
-                    lidar = selected_cav_base['lidar_np']
-                    keep = np.random.rand(len(lidar)) > ratio
-                    selected_cav_base['lidar_np'] = lidar[keep]
+                apply_lidar_corrupt(selected_cav_base, *self._lidar_corrupt)
                 
                 # if distance is too far, we will just skip this agent
                 if distance > self.params['comm_range']:
