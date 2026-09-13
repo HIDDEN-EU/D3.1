@@ -6,7 +6,6 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from opencood.models.LevyHooks import build_depth_pool
 from opencood.models.sub_modules.lss_submodule import Up, CamEncode, BevEncode, CamEncode_Resnet101
 from opencood.utils.camera_utils import gen_dx_bx, cumsum_trick, QuickCumsum, depth_discretization
 from opencood.models.sub_modules.pillar_vfe import PillarVFE
@@ -107,14 +106,6 @@ class LiftSplatShoot(nn.Module):
         elif self.camera_encoder_type == 'Resnet101':
             self.camencode = CamEncode_Resnet101(self.D, self.camC, self.downsample, \
                 self.grid_conf['ddiscr'], self.grid_conf['mode'], args['use_depth_gt'], args['depth_supervision'])
-
-        # Upstream hook: replaces the LSS depth softmax with Poisson intensity
-        # over the depth bins. None unless encoder_args carry
-        # `levy_depth: {enable: true}`; parameterless either way, so checkpoints
-        # load unchanged. See opencood/models/LevyHooks/depth_pool.py.
-        self.camencode.levy_depth = build_depth_pool(
-            args.get('levy_depth'),
-            where=f'LiftSplatShoot/{self.camera_encoder_type}')
     
     def create_frustum(self):
         # make grid in image plane
