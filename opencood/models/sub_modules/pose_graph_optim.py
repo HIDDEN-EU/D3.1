@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 # This is pose graph optimizer, using g2o (bind to C++)
 
 import g2o
 import numpy as np
+
 
 class PoseGraphOptimization2D(g2o.SparseOptimizer):
     def __init__(self, verbose=False):

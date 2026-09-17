@@ -1,11 +1,10 @@
-from turtle import update
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
+import torch
+import torch.nn.functional as F
+from torch import nn
 
-from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
 from opencood.models.comm_modules.where2comm import Communication
+from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -32,7 +31,7 @@ class ScaledDotProductAttention(nn.Module):
     """
 
     def __init__(self, dim):
-        super(ScaledDotProductAttention, self).__init__()
+        super().__init__()
         self.sqrt_dim = np.sqrt(dim)
 
     def forward(self, query, key, value):
@@ -43,7 +42,7 @@ class ScaledDotProductAttention(nn.Module):
 
 class AttenFusion(nn.Module):
     def __init__(self, feature_dim):
-        super(AttenFusion, self).__init__()
+        super().__init__()
         self.att = ScaledDotProductAttention(feature_dim)
 
     def forward(self, x):
@@ -55,7 +54,7 @@ class AttenFusion(nn.Module):
 
 class MaxFusion(nn.Module):
     def __init__(self):
-        super(MaxFusion, self).__init__()
+        super().__init__()
 
     def forward(self, x):
         return torch.max(x, dim=0)[0]
@@ -63,7 +62,7 @@ class MaxFusion(nn.Module):
 
 class EncodeLayer(nn.Module):
     def __init__(self, channels, n_head=8, dropout=0):
-        super(EncodeLayer, self).__init__()
+        super().__init__()
         self.attn = nn.MultiheadAttention(channels, n_head, dropout)
         self.linear1 = nn.Linear(channels, channels)
         self.linear2 = nn.Linear(channels, channels)
@@ -104,7 +103,7 @@ class EncodeLayer(nn.Module):
 
 class TransformerFusion(nn.Module):
     def __init__(self, channels=256, n_head=8, with_spe=True, with_scm=True, dropout=0):
-        super(TransformerFusion, self).__init__()
+        super().__init__()
 
         self.encode_layer = EncodeLayer(channels, n_head, dropout)
         self.with_spe = with_spe
@@ -173,7 +172,7 @@ def add_pe_map(x):
 
 class Where2comm(nn.Module):
     def __init__(self, args):
-        super(Where2comm, self).__init__()
+        super().__init__()
 
         self.communication = False
         self.round = 1

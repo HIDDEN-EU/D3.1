@@ -1,12 +1,10 @@
 
-from torch.utils.data import Subset
-from matplotlib import pyplot as plt
+import os
+
+import matplotlib
 import matplotlib.patches as mpatches
 import numpy as np
 from matplotlib import pyplot as plt
-import matplotlib
-import matplotlib.patches as mpatches
-import os
 
 v2x = True
 if v2x:
@@ -32,7 +30,7 @@ def main():
         posx[cav_id] = []
         posy[cav_id] = []
     recs = []
-    for i in range(0,len(cav_ids)):
+    for i in range(len(cav_ids)):
         recs.append(mpatches.Rectangle((0,0),1,1,fc=COLOR[i]))
 
    
@@ -73,9 +71,9 @@ def main():
                             c=color_map[cav_id])
 
         if v2x:
-            save_path = f"./result_v2x/location_in_bev"
+            save_path = "./result_v2x/location_in_bev"
         else:
-            save_path = f"./result/location_in_bev"
+            save_path = "./result/location_in_bev"
 
         if not os.path.exists(save_path):
             os.mkdir(save_path)

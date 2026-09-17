@@ -1,17 +1,16 @@
-import torch
-import torch.nn as nn
 import numpy as np
+import torch
+from torch import nn
 
-
-from opencood.models.sub_modules.pillar_vfe import PillarVFE
-from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
 from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
+from opencood.models.sub_modules.pillar_vfe import PillarVFE
+from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
 
 
 class CenterPoint(nn.Module):
     def __init__(self, args):
-        super(CenterPoint, self).__init__()
+        super().__init__()
 
         # PIllar VFE
         self.pillar_vfe = PillarVFE(args['pillar_vfe'],

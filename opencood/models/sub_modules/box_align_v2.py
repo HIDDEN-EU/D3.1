@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -7,19 +6,17 @@
 
 
 
-from opencood.models.sub_modules.pose_graph_optim import PoseGraphOptimization2D
-from opencood.utils.transformation_utils import pose_to_tfm
-from opencood.utils.common_utils import check_torch_to_numpy
-from opencood.utils import box_utils
-from collections import OrderedDict
-import numpy as np
-import torch
-import torch.nn.functional as F
-import g2o
-from icecream import ic
 import copy
 import os
+from collections import OrderedDict
+
+import g2o
 import matplotlib.pyplot as plt
+import numpy as np
+
+from opencood.models.sub_modules.pose_graph_optim import PoseGraphOptimization2D
+from opencood.utils import box_utils
+from opencood.utils.transformation_utils import pose_to_tfm
 
 DEBUG = False
 

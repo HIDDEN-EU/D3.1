@@ -1,12 +1,17 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from opencood.models.sub_modules.feature_alignnet_modules import SCAligner, Res1x1Aligner, \
-    Res3x3Aligner, Res3x3Aligner, CBAM, ConvNeXt, FANet, SDTAAgliner
+from torch import nn
+
+from opencood.models.sub_modules.feature_alignnet_modules import (
+    CBAM,
+    ConvNeXt,
+    FANet,
+    Res1x1Aligner,
+    Res3x3Aligner,
+    SCAligner,
+    SDTAAgliner,
+)
 
 
 class AlignNet(nn.Module):

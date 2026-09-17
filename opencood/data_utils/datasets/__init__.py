@@ -1,17 +1,34 @@
-from opencood.data_utils.datasets.late_fusion_dataset import getLateFusionDataset
-from opencood.data_utils.datasets.late_heter_fusion_dataset import getLateheterFusionDataset
-from opencood.data_utils.datasets.early_fusion_dataset import getEarlyFusionDataset
-from opencood.data_utils.datasets.intermediate_fusion_dataset import getIntermediateFusionDataset
-from opencood.data_utils.datasets.intermediate_2stage_fusion_dataset import getIntermediate2stageFusionDataset
-from opencood.data_utils.datasets.intermediate_heter_fusion_dataset import getIntermediateheterFusionDataset
-
-from opencood.data_utils.datasets.heter_infer.intermediate_heter_infer_fusion_dataset import getIntermediateheterinferFusionDataset
-from opencood.data_utils.datasets.heter_infer.intermediate_heter_dual_ego_fusion_dataset import getIntermediateheterdualegoinferFusionDataset
-
+from opencood.data_utils.datasets.basedataset.dairv2x_basedataset import (
+    DAIRV2XBaseDataset,
+)
 from opencood.data_utils.datasets.basedataset.opv2v_basedataset import OPV2VBaseDataset
-from opencood.data_utils.datasets.basedataset.v2xsim_basedataset import V2XSIMBaseDataset
-from opencood.data_utils.datasets.basedataset.dairv2x_basedataset import DAIRV2XBaseDataset
-from opencood.data_utils.datasets.basedataset.v2xset_basedataset import V2XSETBaseDataset
+from opencood.data_utils.datasets.basedataset.v2xset_basedataset import (
+    V2XSETBaseDataset,
+)
+from opencood.data_utils.datasets.basedataset.v2xsim_basedataset import (
+    V2XSIMBaseDataset,
+)
+from opencood.data_utils.datasets.early_fusion_dataset import getEarlyFusionDataset
+from opencood.data_utils.datasets.heter_infer.intermediate_heter_dual_ego_fusion_dataset import (
+    getIntermediateheterdualegoinferFusionDataset,
+)
+from opencood.data_utils.datasets.heter_infer.intermediate_heter_infer_fusion_dataset import (
+    getIntermediateheterinferFusionDataset,
+)
+from opencood.data_utils.datasets.intermediate_2stage_fusion_dataset import (
+    getIntermediate2stageFusionDataset,
+)
+from opencood.data_utils.datasets.intermediate_fusion_dataset import (
+    getIntermediateFusionDataset,
+)
+from opencood.data_utils.datasets.intermediate_heter_fusion_dataset import (
+    getIntermediateheterFusionDataset,
+)
+from opencood.data_utils.datasets.late_fusion_dataset import getLateFusionDataset
+from opencood.data_utils.datasets.late_heter_fusion_dataset import (
+    getLateheterFusionDataset,
+)
+
 
 def build_dataset(dataset_cfg, visualize=False, train=True):
     fusion_name = dataset_cfg['fusion']['core_method']

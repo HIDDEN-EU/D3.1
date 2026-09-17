@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Build the initial checkpoint for a LiDAR+Camera BEV fusion encoder
 (``fused_pyramid_collab`` / :class:`FusedPyramidCollab`) from a HEAL stage1

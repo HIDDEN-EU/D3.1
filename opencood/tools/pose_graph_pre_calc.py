@@ -1,26 +1,20 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
 import argparse
+import copy
+import importlib
+import json
 import os
-import statistics
+from collections import OrderedDict
 
 import torch
-from torch.utils.data import DataLoader, Subset
-from tensorboardX import SummaryWriter
+from torch.utils.data import DataLoader
 
-import importlib
-import opencood.hypes_yaml.yaml_utils as yaml_utils
-from opencood.tools import train_utils
 from opencood.data_utils.datasets import build_dataset
-import copy
-from collections import OrderedDict
-import json
-
-import numpy as np
-from icecream import ic
+from opencood.hypes_yaml import yaml_utils
+from opencood.tools import train_utils
 
 
 def train_parser():

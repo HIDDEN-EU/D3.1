@@ -22,17 +22,24 @@ NOTE: max_cav in the hypes yaml must be >= 2*use_cav (e.g. 8 for use_cav=4),
 otherwise pairwise_t_matrix will silently truncate agents.
 '''
 
-import copy
 import math
 from collections import OrderedDict
+
 import numpy as np
 import torch
-from opencood.utils.pose_utils import add_noise_data_dict
+
+from opencood.data_utils.datasets.heter_infer.intermediate_heter_infer_fusion_dataset import (
+    getIntermediateheterinferFusionDataset,
+)
 from opencood.utils import box_utils as box_utils
-from opencood.utils.common_utils import merge_features_to_dict, compute_iou, convert_format
-from opencood.utils.transformation_utils import get_pairwise_transformation
+from opencood.utils.common_utils import (
+    compute_iou,
+    convert_format,
+    merge_features_to_dict,
+)
 from opencood.utils.pcd_utils import mask_points_by_range
-from opencood.data_utils.datasets.heter_infer.intermediate_heter_infer_fusion_dataset import getIntermediateheterinferFusionDataset
+from opencood.utils.pose_utils import add_noise_data_dict
+from opencood.utils.transformation_utils import get_pairwise_transformation
 
 
 def getIntermediateheterdualegoinferFusionDataset(cls):
@@ -126,7 +133,9 @@ def getIntermediateheterdualegoinferFusionDataset(cls):
             # Box alignment (if enabled) — same logic as parent
             # ---------------------------------------------------------------
             if self.box_align and str(idx) in self.stage1_result.keys():
-                from opencood.models.sub_modules.box_align_v2 import box_alignment_relative_sample_np
+                from opencood.models.sub_modules.box_align_v2 import (
+                    box_alignment_relative_sample_np,
+                )
                 stage1_content = self.stage1_result[str(idx)]
                 if stage1_content is not None:
                     all_agent_id_list = stage1_content['cav_id_list']

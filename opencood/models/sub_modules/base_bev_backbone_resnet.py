@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import numpy as np
 import torch
-import torch.nn as nn
+from torch import nn
 
-from opencood.models.sub_modules.resblock import ResNetModified, BasicBlock
+from opencood.models.sub_modules.resblock import BasicBlock, ResNetModified
 
 DEBUG = False
 

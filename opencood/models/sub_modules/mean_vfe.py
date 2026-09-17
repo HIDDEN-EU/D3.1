@@ -1,5 +1,6 @@
 import torch
-import torch.nn as nn
+from torch import nn
+
 
 class MeanVFE(nn.Module):
     def __init__(self, model_cfg, num_point_features, **kwargs):

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -6,12 +5,11 @@
 Transformation utils
 """
 
-from re import X
 import numpy as np
 import torch
-from icecream import ic
-from pyquaternion import Quaternion
+
 from opencood.utils.common_utils import check_numpy_to_torch
+
 
 def regroup(x, record_len):
     cum_sum_len = torch.cumsum(record_len, dim=0)

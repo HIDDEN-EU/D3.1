@@ -1,28 +1,26 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import os
 from collections import OrderedDict
-import cv2
-import h5py
-import torch
-import numpy as np
 from functools import partial
+
+import numpy as np
 from torch.utils.data import Dataset
-from PIL import Image
-import random
-import opencood.utils.pcd_utils as pcd_utils
+
 from opencood.data_utils.augmentor.data_augmentor import DataAugmentor
-from opencood.hypes_yaml.yaml_utils import load_yaml
-from opencood.utils.pcd_utils import downsample_lidar_minimum
+from opencood.data_utils.post_processor import build_postprocessor
+from opencood.data_utils.pre_processor import build_preprocessor
+from opencood.utils import pcd_utils
 from opencood.utils.camera_utils import load_camera_data, load_intrinsic_DAIR_V2X
 from opencood.utils.common_utils import read_json
-from opencood.utils.transformation_utils import tfm_to_pose, rot_and_trans_to_trasnformation_matrix
-from opencood.utils.transformation_utils import veh_side_rot_and_trans_to_trasnformation_matrix
-from opencood.utils.transformation_utils import inf_side_rot_and_trans_to_trasnformation_matrix
-from opencood.data_utils.pre_processor import build_preprocessor
-from opencood.data_utils.post_processor import build_postprocessor
+from opencood.utils.transformation_utils import (
+    inf_side_rot_and_trans_to_trasnformation_matrix,
+    rot_and_trans_to_trasnformation_matrix,
+    tfm_to_pose,
+    veh_side_rot_and_trans_to_trasnformation_matrix,
+)
+
 
 class DAIRV2XBaseDataset(Dataset):
     def __init__(self, params, visualize, train=True):
@@ -151,13 +149,13 @@ class DAIRV2XBaseDataset(Dataset):
 
         # Label for single side
         data[0]['params']['vehicles_single_front'] = read_json(os.path.join(self.root_dir, \
-                                'vehicle-side/label/lidar_backup/{}.json'.format(veh_frame_id)))
+                                f'vehicle-side/label/lidar_backup/{veh_frame_id}.json'))
         data[0]['params']['vehicles_single_all'] = read_json(os.path.join(self.root_dir, \
-                                'vehicle-side/label/lidar/{}.json'.format(veh_frame_id)))
+                                f'vehicle-side/label/lidar/{veh_frame_id}.json'))
         data[1]['params']['vehicles_single_front'] = read_json(os.path.join(self.root_dir, \
-                                'infrastructure-side/label/virtuallidar/{}.json'.format(inf_frame_id)))
+                                f'infrastructure-side/label/virtuallidar/{inf_frame_id}.json'))
         data[1]['params']['vehicles_single_all'] = read_json(os.path.join(self.root_dir, \
-                                'infrastructure-side/label/virtuallidar/{}.json'.format(inf_frame_id)))
+                                f'infrastructure-side/label/virtuallidar/{inf_frame_id}.json'))
 
         if getattr(self, "heterogeneous", False):
             self.generate_object_center_lidar = \

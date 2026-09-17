@@ -7,19 +7,24 @@ Modify: Yifan Lu
 
 import torch
 from torch import nn
-from efficientnet_pytorch import EfficientNet
-from torchvision.models.resnet import resnet18
-from icecream import ic
 
-from opencood.utils.camera_utils import gen_dx_bx, cumsum_trick, QuickCumsum, depth_discretization
-from opencood.models.sub_modules.lss_submodule import Up, CamEncode, BevEncode, CamEncode_Resnet101
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
-from matplotlib import pyplot as plt
+from opencood.models.sub_modules.lss_submodule import (
+    BevEncode,
+    CamEncode,
+    CamEncode_Resnet101,
+)
+from opencood.utils.camera_utils import (
+    QuickCumsum,
+    cumsum_trick,
+    depth_discretization,
+    gen_dx_bx,
+)
 
 
 class LiftSplatShoot(nn.Module):
     def __init__(self, args): 
-        super(LiftSplatShoot, self).__init__()
+        super().__init__()
         self.grid_conf = args['grid_conf']   # 网格配置参数
         self.data_aug_conf = args['data_aug_conf']   # 数据增强配置参数
         self.bevout_feature = args['bevout_feature']

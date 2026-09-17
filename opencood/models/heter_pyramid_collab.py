@@ -3,24 +3,26 @@
 HEAL: An Extensible Framework for Open Heterogeneous Collaborative Perception 
 """
 
-import torch
-import torch.nn as nn
-import numpy as np
-from icecream import ic
-from collections import OrderedDict, Counter
-from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone 
-from opencood.models.sub_modules.feature_alignnet import AlignNet
-from opencood.models.sub_modules.downsample_conv import DownsampleConv
-from opencood.models.sub_modules.naive_compress import NaiveCompressor
-from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
-from opencood.utils.transformation_utils import normalize_pairwise_tfm
-from opencood.utils.model_utils import check_trainable_module, fix_bn, unfix_bn
 import importlib
+from collections import Counter, OrderedDict
+
+import torch
 import torchvision
+from torch import nn
+
+from opencood.models.fuse_modules.levy_pyramid_fuse import LevyPyramidFusion
+from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
+from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
+from opencood.models.sub_modules.downsample_conv import DownsampleConv
+from opencood.models.sub_modules.feature_alignnet import AlignNet
+from opencood.models.sub_modules.naive_compress import NaiveCompressor
+from opencood.utils.model_utils import check_trainable_module
+from opencood.utils.transformation_utils import normalize_pairwise_tfm
+
 
 class HeterPyramidCollab(nn.Module):
     def __init__(self, args):
-        super(HeterPyramidCollab, self).__init__()
+        super().__init__()
         self.args = args
         modality_name_list = list(args.keys())
         modality_name_list = [x for x in modality_name_list if x.startswith("m") and x[1:].isdigit()] 
@@ -85,7 +87,16 @@ class HeterPyramidCollab(nn.Module):
         Fusion, by default multiscale fusion: 
         Note the input of PyramidFusion has downsampled 2x. (SECOND required)
         """
-        self.pyramid_backbone = PyramidFusion(args['fusion_backbone'])
+        fusion_core_method = args['fusion_backbone'].get('core_method', 'pyramid')
+        if fusion_core_method in ('levy_pyramid', 'levy_pyramid_fuse'):
+            # Drop-in replacement: same state_dict keys, so a PyramidFusion
+            # checkpoint loads unchanged. Configured under fusion_backbone.levy.
+            self.pyramid_backbone = LevyPyramidFusion(args['fusion_backbone'])
+        elif fusion_core_method == 'pyramid':
+            self.pyramid_backbone = PyramidFusion(args['fusion_backbone'])
+        else:
+            raise ValueError(
+                f"unknown fusion_backbone.core_method {fusion_core_method}")
 
 
         """

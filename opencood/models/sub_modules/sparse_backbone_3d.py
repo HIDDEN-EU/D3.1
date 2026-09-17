@@ -1,12 +1,24 @@
 from functools import partial
+
 from termcolor import colored
-import spconv
-import torch.nn as nn
+from torch import nn
 
 try: # spconv1
-    from spconv import SparseSequential, SubMConv3d, SparseConv3d, SparseInverseConv3d, SparseConvTensor
+    from spconv import (
+        SparseConv3d,
+        SparseConvTensor,
+        SparseInverseConv3d,
+        SparseSequential,
+        SubMConv3d,
+    )
 except: # spconv2
-    from spconv.pytorch import  SparseSequential, SubMConv3d, SparseConv3d, SparseInverseConv3d, SparseConvTensor
+    from spconv.pytorch import (
+        SparseConv3d,
+        SparseConvTensor,
+        SparseInverseConv3d,
+        SparseSequential,
+        SubMConv3d,
+    )
 
 def post_act_block(in_channels, out_channels, kernel_size, indice_key=None, stride=1, padding=0,
                    conv_type='subm', norm_fn=None):

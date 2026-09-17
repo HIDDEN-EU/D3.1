@@ -1,8 +1,6 @@
-import cv2
-import numpy as np
 import glob
-import os
 
+import cv2
 
 projnames = ['/GPFS/rhome/yifanlu/OpenCOOD/opencood/logs/OPV2V_npj_v2xvit_w_2022_09_05_18_52_53/vis_0.4_0.4_0_0_video_vis',
              '/GPFS/rhome/yifanlu/OpenCOOD/opencood/logs/OPV2V_npj_v2xvit_w_2022_09_05_18_52_53/vis_0.6_0.6_0_0_video_vis']

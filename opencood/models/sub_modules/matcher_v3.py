@@ -5,22 +5,26 @@
 
 """
 
+from itertools import compress
+
+import numpy as np
 import torch
 from torch import nn
-import numpy as np
-import spconv
-from collections import OrderedDict
+
 from opencood.pcdet_utils.iou3d_nms.iou3d_nms_utils import boxes_iou3d_gpu
-from opencood.utils.box_utils import corner_to_center_torch, boxes_to_corners_3d, project_box3d, get_mask_for_boxes_within_range_torch
-from opencood.utils.transformation_utils import x1_to_x2
+from opencood.utils.box_utils import (
+    boxes_to_corners_3d,
+    corner_to_center_torch,
+    get_mask_for_boxes_within_range_torch,
+    project_box3d,
+)
 from opencood.utils.common_utils import limit_period
-from icecream import ic
-from itertools import compress
+from opencood.utils.transformation_utils import x1_to_x2
 
 
 class MatcherV3(nn.Module):
     def __init__(self, cfg, pc_range):
-        super(MatcherV3, self).__init__()
+        super().__init__()
         self.order = cfg['order']
         self.pc_range = pc_range
         self.enlarge_ratio = cfg.get("enlarge_ratio", 1)

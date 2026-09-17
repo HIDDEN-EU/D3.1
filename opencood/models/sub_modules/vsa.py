@@ -1,12 +1,17 @@
 import copy
-import random
 
 import torch
-import torch.nn as nn
+from torch import nn
 
-from opencood.pcdet_utils.pointnet2.pointnet2_stack import pointnet2_modules as pointnet2_stack_modules
-from opencood.pcdet_utils.pointnet2.pointnet2_stack import pointnet2_utils as pointnet2_stack_utils
-from opencood.pcdet_utils.roiaware_pool3d.roiaware_pool3d_utils import points_in_boxes_gpu
+from opencood.pcdet_utils.pointnet2.pointnet2_stack import (
+    pointnet2_modules as pointnet2_stack_modules,
+)
+from opencood.pcdet_utils.pointnet2.pointnet2_stack import (
+    pointnet2_utils as pointnet2_stack_utils,
+)
+from opencood.pcdet_utils.roiaware_pool3d.roiaware_pool3d_utils import (
+    points_in_boxes_gpu,
+)
 from opencood.utils import common_utils
 
 
@@ -38,7 +43,7 @@ def bilinear_interpolate_torch(im, x, y):
     wb = (x1.type_as(x) - x) * (y - y0.type_as(y))
     wc = (x - x0.type_as(x)) * (y1.type_as(y) - y)
     wd = (x - x0.type_as(x)) * (y - y0.type_as(y))
-    ans = torch.t((torch.t(Ia) * wa)) + torch.t(torch.t(Ib) * wb) + torch.t(torch.t(Ic) * wc) + torch.t(torch.t(Id) * wd)
+    ans = torch.t(torch.t(Ia) * wa) + torch.t(torch.t(Ib) * wb) + torch.t(torch.t(Ic) * wc) + torch.t(torch.t(Id) * wd)
     return ans
 
 

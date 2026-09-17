@@ -1,19 +1,18 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu
 # Add direction classification loss
 # The originally point_pillar_loss.py, can not determine if the box heading is opposite to the GT.
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
-from opencood.utils.common_utils import limit_period
+import torch
+from torch import nn
+
 from opencood.data_utils.post_processor.voxel_postprocessor import VoxelPostprocessor
-from icecream import ic
+from opencood.utils.common_utils import limit_period
+
 
 class PointPillarLoss(nn.Module):
     def __init__(self, args):
-        super(PointPillarLoss, self).__init__()
+        super().__init__()
         self.pos_cls_weight = args['pos_cls_weight']
 
         self.cls = args['cls']
@@ -25,7 +24,9 @@ class PointPillarLoss(nn.Module):
             self.dir = None
 
         if 'iou' in args:
-            from opencood.pcdet_utils.iou3d_nms.iou3d_nms_utils import aligned_boxes_iou3d_gpu
+            from opencood.pcdet_utils.iou3d_nms.iou3d_nms_utils import (
+                aligned_boxes_iou3d_gpu,
+            )
             self.iou_loss_func = aligned_boxes_iou3d_gpu
             self.iou = args['iou']
         else:

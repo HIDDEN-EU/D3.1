@@ -1,9 +1,10 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 from os.path import dirname, realpath
-from setuptools import setup, find_packages, Distribution
+
+from setuptools import find_packages, setup
+
 from opencood.version import __version__
 
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Hao Xiang <haxiang@g.ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -7,21 +6,16 @@
 Implementation of V2VNet Fusion
 """
 
-from email import message_from_binary_file
 import torch
-import torch.nn as nn
+from torch import nn
 
-from opencood.models.sub_modules.torch_transformation_utils import \
-    get_discretized_transformation_matrix, get_transformation_matrix, \
-    warp_affine_simple, get_rotated_roi
 from opencood.models.sub_modules.convgru import ConvGRU
-from icecream import ic
-from matplotlib import pyplot as plt
-from icecream import ic
+from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
+
 
 class V2VNetFusion(nn.Module):
     def __init__(self, args):
-        super(V2VNetFusion, self).__init__()
+        super().__init__()
         
         in_channels = args['in_channels']
         H, W = args['conv_gru']['H'], args['conv_gru']['W'] # remember to modify for v2xsim dataset

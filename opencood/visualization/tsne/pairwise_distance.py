@@ -1,10 +1,11 @@
-import torch
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
-from opencood.visualization.tsne.cka import linear_CKA, kernel_CKA
+import torch
 from opencood.visualization.tsne.tsne_roi import load_data
-from opencood.visualization.tsne.mmd import mmd_rbf
+
+from opencood.visualization.tsne.cka import kernel_CKA
+
 
 def jensen_shannon_divergence(p, q):
     m = 0.5 * (p + q)

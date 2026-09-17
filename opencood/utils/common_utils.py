@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>, Runsheng Xu <rxx3386@ucla.edu>, Hao Xiang <haxiang@g.ucla.edu>,
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -7,12 +6,14 @@
 Common utilities
 """
 
-import numpy as np
-import torch
-from shapely.geometry import Polygon
 import json
 import pickle
 from collections import OrderedDict
+
+import numpy as np
+import torch
+from shapely.geometry import Polygon
+
 
 def update_dict(d1,d2):
     '''

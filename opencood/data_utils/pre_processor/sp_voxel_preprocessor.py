@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>, OpenPCDet
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -9,15 +8,13 @@ import sys
 
 import numpy as np
 import torch
-from icecream import ic
 
-from opencood.data_utils.pre_processor.base_preprocessor import \
-    BasePreprocessor
+from opencood.data_utils.pre_processor.base_preprocessor import BasePreprocessor
 
 
 class SpVoxelPreprocessor(BasePreprocessor):
     def __init__(self, preprocess_params, train):
-        super(SpVoxelPreprocessor, self).__init__(preprocess_params,
+        super().__init__(preprocess_params,
                                                   train)
         self.spconv = 1
         try:

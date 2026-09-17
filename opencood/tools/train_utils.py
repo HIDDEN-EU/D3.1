@@ -1,16 +1,17 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import glob
 import importlib
-import yaml
 import os
 import re
-from datetime import datetime
 import shutil
+from datetime import datetime
+
 import torch
-import torch.optim as optim
+import yaml
+from torch import optim
+
 
 def backup_script(full_path, folders_to_save=["models", "data_utils", "utils", "loss"]):
     target_folder = os.path.join(full_path, 'scripts')
@@ -67,7 +68,7 @@ def load_saved_model(saved_path, model):
     model : opencood object
         The model instance loaded pretrained params.
     """
-    assert os.path.exists(saved_path), '{} not found'.format(saved_path)
+    assert os.path.exists(saved_path), f'{saved_path} not found'
 
     def findLastCheckpoint(save_dir):
         file_list = glob.glob(os.path.join(save_dir, '*epoch*.pth'))

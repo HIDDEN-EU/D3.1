@@ -1,14 +1,13 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>, Hao Xiang <haxiang@g.ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
-import re
-import yaml
-import os
 import math
+import os
+import re
 
 import numpy as np
+import yaml
 
 
 def load_yaml(file, opt=None):
@@ -33,15 +32,15 @@ def load_yaml(file, opt=None):
     stream = open(file, 'r')
     loader = yaml.Loader
     loader.add_implicit_resolver(
-        u'tag:yaml.org,2002:float',
-        re.compile(u'''^(?:
+        'tag:yaml.org,2002:float',
+        re.compile('''^(?:
          [-+]?(?:[0-9][0-9_]*)\\.[0-9_]*(?:[eE][-+]?[0-9]+)?
         |[-+]?(?:[0-9][0-9_]*)(?:[eE][-+]?[0-9]+)
         |\\.[0-9_]+(?:[eE][-+][0-9]+)?
         |[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\\.[0-9_]*
         |[-+]?\\.(?:inf|Inf|INF)
-        |\\.(?:nan|NaN|NAN))$''', re.X),
-        list(u'-+0123456789.'))
+        |\\.(?:nan|NaN|NAN))$''', re.VERBOSE),
+        list('-+0123456789.'))
     param = yaml.load(stream, Loader=loader)
     if "yaml_parser" in param:
         param = eval(param["yaml_parser"])(param)
@@ -204,8 +203,8 @@ def load_bev_params(param):
         return int((high - low) / r)
 
     input_shape = (
-        int((f(L1, L2, res))),
-        int((f(W1, W2, res))),
+        int(f(L1, L2, res)),
+        int(f(W1, W2, res)),
         int((f(H1, H2, res)) + 1)
     )
     label_shape = (

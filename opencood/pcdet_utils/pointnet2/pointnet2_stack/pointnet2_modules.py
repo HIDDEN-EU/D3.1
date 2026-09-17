@@ -1,15 +1,14 @@
-from typing import List
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 from opencood.pcdet_utils.pointnet2.pointnet2_stack import pointnet2_utils
 
 
 class StackSAModuleMSG(nn.Module):
 
-    def __init__(self, *, radii: List[float], nsamples: List[int], mlps: List[List[int]],
+    def __init__(self, *, radii: list[float], nsamples: list[int], mlps: list[list[int]],
                  use_xyz: bool = True, pool_method='max_pool'):
         """
         Args:
@@ -56,7 +55,7 @@ class StackSAModuleMSG(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, xyz, xyz_batch_cnt, new_xyz, new_xyz_batch_cnt, features=None, empty_voxel_set_zeros=True):
-        """
+        r"""
         :param xyz: (N1 + N2 ..., 3) tensor of the xyz coordinates of the features
         :param xyz_batch_cnt: (batch_size), [N1, N2, ...]
         :param new_xyz: (M1 + M2 ..., 3)
@@ -93,7 +92,7 @@ class StackSAModuleMSG(nn.Module):
 
 
 class StackPointnetFPModule(nn.Module):
-    def __init__(self, *, mlp: List[int]):
+    def __init__(self, *, mlp: list[int]):
         """
         Args:
             mlp: list of int

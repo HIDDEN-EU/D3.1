@@ -11,6 +11,9 @@ from opencood.models.sub_modules.torch_transformation_utils import warp_affine_s
 # Additive stand-in for log(0). Finite (fp16-safe) yet exp()es to exactly 0.
 LOG_ZERO = -1e4
 
+# Floor for the L2 norm when normalising features for the cosine channel.
+NORM_EPS = 1e-6
+
 
 def poisson_inverse_moment(lam, max_terms=96, asymptotic_threshold=30.0):
     """
@@ -93,7 +96,9 @@ def _sample_multinomial_fuse(features, p, counts, eps=1e-12):
 
 def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
                        tau=0.5, gamma=1.0, logits=None,
-                       disagreement_reduction='sum', stochastic=False):
+                       disagreement_reduction='mean', disagreement_mode='raw',
+                       aux_disagreement_modes=(), stochastic=False,
+                       agent_logit_fn=None):
     """
     Levy replacement for :func:`opencood.models.fuse_modules.pyramid_fuse.weighted_fuse`.
 
@@ -122,12 +127,30 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
         intensity instead of ``score`` (``score_mode='logit'``); ``score`` still
         supplies the validity mask.
     disagreement_reduction : str
-        'sum' (blueprint) or 'mean' over the channel axis. 'sum' makes tr Sigma grow
+        'sum', 'mean' over the channel axis. 'sum' makes tr Sigma grow
         with the level's channel count, which the per-level omega_l weights are there
-        to rebalance; 'mean' removes that dependence up front.
+        to rebalance; 'mean' removes that dependence up front. Ignored under
+        ``disagreement_mode='cosine'``, which is already channel-count free.
+    disagreement_mode : str
+        'raw' computes tr Sigma on the features as they are. Because tr Sigma is
+        quadratically homogeneous in feature magnitude, that channel reads out
+        feature *energy*: it peaks near the ego where returns are dense and real
+        objects sit, and decays to ~0 in the far field regardless of how much the
+        agents actually conflict.
+
+        'cosine' L2-normalises every agent's feature vector first, so the statistic
+        becomes 1 - ||sum_j p_j F_hat_j||^2 -- a scale-free angular dispersion in
+        [0, 1] that measures conflict of *direction* rather than magnitude. The
+        fused feature itself is always built from the un-normalised features; only
+        the diagnostic changes.
     stochastic : bool
         Return one draw of the stochastic operator instead of its mean. Non
         differentiable; evaluation only.
+    agent_logit_fn : callable, optional
+        ``agent_logit_fn(b, feature_in_ego, s_map, valid, base_weights)`` returning a
+        per-agent additive log-intensity offset (N, 1, H, W). Added to
+        log(tau) + gamma * S before normalisation, so the weights stay convex. None
+        (default) leaves the operator exactly as without it.
 
     Returns
     -------
@@ -137,6 +160,11 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
         log Lambda(s), (B, 1, H, W). Log space so that large gamma cannot overflow.
     disagreement : torch.Tensor
         tr Sigma(s) >= 0, (B, 1, H, W).
+    n_valid : torch.Tensor
+        N_valid(s), (B, 1, H, W) int64 -- how many agents actually observe each
+        cell. ``n_valid >= 2`` is the overlap mask M_overlap: the only region
+        where tr Sigma carries signal, since a single contributing agent gives
+        p_j = 1 and hence tr Sigma = 0 identically.
     """
     _, C, H, W = x.shape
     B, L = affine_matrix.shape[:2]
@@ -147,6 +175,8 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
     out = []
     log_evidence_list = []
     disagreement_list = []
+    n_valid_list = []
+    aux_lists = {}
 
     # iterate each batch
     for b in range(B):
@@ -181,16 +211,40 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
         # observes at p = 0 (HEAL's nan -> 0 branch) instead of a spurious 1/N.
         weights = torch.exp(log_lambda - log_evidence) * valid.to(log_lambda.dtype)
 
+        if agent_logit_fn is not None:
+            # Learned per-agent offset on top of the base intensity; invalid cells
+            # stay at LOG_ZERO, so they still get neither weight nor evidence.
+            delta = agent_logit_fn(b, feature_in_ego, s_map, valid, weights)
+            log_lambda = (log_lambda + delta).masked_fill(~valid, LOG_ZERO)
+            log_evidence = torch.logsumexp(log_lambda, dim=0, keepdim=True)
+            weights = torch.exp(log_lambda - log_evidence) * valid.to(log_lambda.dtype)
+
         # Mean path: E[stochastic fused feature] (Theorem 1).
         fused = torch.sum(feature_in_ego * weights, dim=0)
 
         # tr Sigma = sum_j p_j ||F_j||^2 - ||F_mean||^2  (weighted variance).
-        sq_norm = torch.sum(feature_in_ego ** 2, dim=1, keepdim=True)
-        second_moment = torch.sum(weights * sq_norm, dim=0)
-        disagreement = (second_moment - torch.sum(fused ** 2, dim=0, keepdim=True))
-        disagreement = disagreement.clamp(min=0.0)
-        if disagreement_reduction == 'mean':
-            disagreement = disagreement / C
+        # Under 'cosine' the same weighted variance is taken over unit-norm
+        # features, which cancels the ||F||^2 scaling. Cells no agent observes
+        # keep weights = 0 and so still come out at exactly 0.
+        def _disagreement(mode):
+            if mode == 'cosine':
+                feat_d = feature_in_ego / feature_in_ego.norm(
+                    dim=1, keepdim=True).clamp(min=NORM_EPS)
+                mean_d = torch.sum(feat_d * weights, dim=0)
+            else:
+                feat_d = feature_in_ego
+                mean_d = fused
+            sq_norm = torch.sum(feat_d ** 2, dim=1, keepdim=True)
+            second_moment = torch.sum(weights * sq_norm, dim=0)
+            d = (second_moment - torch.sum(mean_d ** 2, dim=0, keepdim=True))
+            d = d.clamp(min=0.0)
+            if disagreement_reduction == 'mean' and mode != 'cosine':
+                d = d / C
+            return d
+
+        disagreement = _disagreement(disagreement_mode)
+        for _m in aux_disagreement_modes:
+            aux_lists.setdefault(_m, []).append(_disagreement(_m))
 
         if stochastic:
             with torch.no_grad():
@@ -204,10 +258,71 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
         log_evidence_list.append(log_evidence[0])
         disagreement_list.append(disagreement)
 
+        n_valid_list.append(valid.sum(dim=0))
+
     return (torch.stack(out),
             torch.stack(log_evidence_list),
-            torch.stack(disagreement_list))
+            torch.stack(disagreement_list),
+            torch.stack(n_valid_list),
+            {m: torch.stack(v) for m, v in aux_lists.items()})
 
+
+def overlap_masked_stats(tensor, overlap_mask, quantiles=(0.5, 0.9, 0.99)):
+    """
+    Reduce a BEV map over the overlap mask only.
+
+    Every grid-level metric on evidence / disagreement / sigma must go through
+    this. Reducing over the full grid instead is not a mild dilution: outside
+    M_overlap at most one agent contributes, so tr Sigma is exactly 0 by
+    construction, and the unmasked mean is driven by how much of the BEV the
+    collaborator covers rather than by any property of the uncertainty.
+
+    Parameters
+    ----------
+    tensor : torch.Tensor
+        Map to reduce, (B, 1, H, W) / (1, H, W) / (H, W).
+    overlap_mask : torch.Tensor
+        Binary M_overlap of the *same* spatial size -- pass the mask belonging to
+        the level being reduced, since levels differ in resolution.
+    quantiles : sequence of float
+        Quantiles to report over the selected cells.
+
+    Returns
+    -------
+    dict
+        'n_cells' selected, 'coverage' as a fraction of the grid, 'mean', 'std',
+        'max', and 'q50' / 'q90' / ... . Stats are float('nan') when the mask
+        selects nothing (e.g. a single-agent frame).
+    """
+    if tensor.shape[-2:] != overlap_mask.shape[-2:]:
+        raise ValueError(
+            f"overlap mask {tuple(overlap_mask.shape[-2:])} does not match map "
+            f"{tuple(tensor.shape[-2:])}; use the mask of the same pyramid level")
+
+    mask = overlap_mask.expand_as(tensor) if overlap_mask.shape != tensor.shape \
+        else overlap_mask
+    selected = tensor[mask.bool()].float()
+
+    stats = {
+        'n_cells': int(selected.numel()),
+        'coverage': float(selected.numel()) / float(tensor.numel()),
+    }
+    if selected.numel() == 0:
+        stats.update({'mean': float('nan'), 'std': float('nan'),
+                      'max': float('nan')})
+        stats.update({f'q{int(q * 100)}': float('nan') for q in quantiles})
+        return stats
+
+    qs = torch.quantile(selected, torch.tensor(list(quantiles),
+                                               device=selected.device))
+    stats.update({
+        'mean': selected.mean().item(),
+        'std': selected.std().item() if selected.numel() > 1 else 0.0,
+        'max': selected.max().item(),
+    })
+    stats.update({f'q{int(q * 100)}': qs[k].item()
+                  for k, q in enumerate(quantiles)})
+    return stats
 
 class LevyPyramidFusion(PyramidFusion):
     """
@@ -248,6 +363,22 @@ class LevyPyramidFusion(PyramidFusion):
         self.disagreement_reduction = levy_cfg.get('disagreement_reduction', 'sum')
         assert self.disagreement_reduction in ('sum', 'mean')
 
+        self.disagreement_mode = levy_cfg.get('disagreement_mode', 'raw')
+        assert self.disagreement_mode in ('raw', 'cosine'), \
+            f"unknown levy.disagreement_mode {self.disagreement_mode}"
+
+        # Extra channels computed in the same forward. Publishing them together
+        # is what makes a raw-vs-cosine comparison strictly paired: two separate
+        # runs are not bit-identical (scores near score_threshold cross it), so
+        # they do not even produce the same set of boxes.
+        self.aux_disagreement_modes = tuple(
+            levy_cfg.get('aux_disagreement_modes', ()) or ())
+        for _m in self.aux_disagreement_modes:
+            assert _m in ('raw', 'cosine'), f"unknown aux disagreement mode {_m}"
+        if self.disagreement_mode == 'cosine' and self.disagreement_reduction == 'mean':
+            print("Levy: disagreement_reduction='mean' is ignored under "
+                  "disagreement_mode='cosine' (already channel-count free).")
+
         self.compute_uncertainty = bool(levy_cfg.get('compute_uncertainty', True))
         self.detach_uncertainty = bool(levy_cfg.get('detach_uncertainty', True))
 
@@ -267,9 +398,10 @@ class LevyPyramidFusion(PyramidFusion):
 
         self.uncertainty_output = None
 
-        print(f'Levy pyramid fusion: tau={self.tau}, gamma={gamma}, '
-              f'score_mode={self.score_mode}, scale_weights={self.scale_weights}')
 
+        print(f'Levy pyramid fusion: tau={self.tau}, gamma={gamma}, '
+              f'score_mode={self.score_mode}, disagreement={self.disagreement_mode}'
+              f'/{self.disagreement_reduction}, scale_weights={self.scale_weights} ')
     @property
     def gamma(self):
         """Logit temperature; a tensor when ``learnable_gamma`` is on."""
@@ -340,14 +472,17 @@ class LevyPyramidFusion(PyramidFusion):
 
                 # e.g. {m2: [0,0,0,1], m4: [0,1,0,0]}
 
-        feature_list = self.get_multiscale_feature(spatial_features)
+        agent_logit_fns = [None] * self.num_levels
+
+        with torch.set_grad_enabled(torch.is_grad_enabled() and not self.trunk_no_grad):
+            feature_list = self.get_multiscale_feature(spatial_features)
+            occ_map_list = [getattr(self, f"single_head_{i}")(feature_list[i])  # [N, 1, H, W]
+                            for i in range(self.num_levels)]
         fused_feature_list = []
-        occ_map_list = []
         per_scale = []
 
         for i in range(self.num_levels):
-            occ_map = eval(f"self.single_head_{i}")(feature_list[i])  # [N, 1, H, W]
-            occ_map_list.append(occ_map)
+            occ_map = occ_map_list[i]
             score = torch.sigmoid(occ_map) + 1e-4
 
             if crop_mask_flag and not self.training:
@@ -367,17 +502,20 @@ class LevyPyramidFusion(PyramidFusion):
 
                 score = score * cam_crop_mask
 
-            fused, log_evidence, disagreement = levy_weighted_fuse(
+            fused, log_evidence, disagreement, n_valid, aux = levy_weighted_fuse(
                 feature_list[i], score, record_len, affine_matrix,
                 self.align_corners,
                 tau=self.tau,
                 gamma=self.gamma,
                 logits=occ_map if self.score_mode == 'logit' else None,
                 disagreement_reduction=self.disagreement_reduction,
+                disagreement_mode=self.disagreement_mode,
+                aux_disagreement_modes=self.aux_disagreement_modes,
                 stochastic=stochastic,
+                agent_logit_fn=agent_logit_fns[i],
             )
             fused_feature_list.append(fused)
-            per_scale.append((log_evidence, disagreement))
+            per_scale.append((log_evidence, disagreement, n_valid, aux))
 
         fused_feature = self.decode_multiscale_feature(fused_feature_list)
 
@@ -390,9 +528,15 @@ class LevyPyramidFusion(PyramidFusion):
 
     def _build_trust_map(self, per_scale):
         """
-        Blueprint Sec. 4-5: per level, sigma_l = sqrt(tr Sigma_l * phi(Lambda_l));
+        per level, sigma_l = sqrt(tr Sigma_l * phi(Lambda_l));
         then bilinearly upsample every level to the level-0 BEV grid and take the
         omega-weighted average.
+
+        Each level also publishes ``n_valid`` and the binary overlap mask
+        M_overlap = 1{N_valid >= 2}. Every grid-level metric must be reduced over
+        M_overlap only: outside it at most one agent contributes, so tr Sigma is
+        algebraically zero rather than merely small, and an unmasked mean reports
+        the collaborator's footprint area instead of its disagreement.
         """
         base_size = per_scale[0][0].shape[-2:]
 
@@ -400,8 +544,10 @@ class LevyPyramidFusion(PyramidFusion):
         evidence_acc = None
         disagreement_acc = None
         scale_maps = []
+        base_overlap = None
+        base_n_valid = None
 
-        for i, (log_evidence, disagreement) in enumerate(per_scale):
+        for i, (log_evidence, disagreement, n_valid, aux) in enumerate(per_scale):
             if self.detach_uncertainty:
                 log_evidence = log_evidence.detach()
                 disagreement = disagreement.detach()
@@ -409,15 +555,25 @@ class LevyPyramidFusion(PyramidFusion):
             evidence = torch.exp(log_evidence.clamp(max=60.0))
             phi = poisson_inverse_moment(evidence)
             sigma = torch.sqrt(F.relu(disagreement * phi))
+            overlap_mask = (n_valid >= 2)
 
             scale_maps.append({
                 'evidence': evidence,
                 'log_evidence': log_evidence,
                 'disagreement': disagreement,
                 'sigma': sigma,
+                'n_valid': n_valid,
+                'overlap_mask': overlap_mask,
             })
+            for _m, _d in aux.items():
+                _d = _d.detach() if self.detach_uncertainty else _d
+                scale_maps[-1][f'disagreement_{_m}'] = _d
+                scale_maps[-1][f'sigma_{_m}'] = torch.sqrt(F.relu(_d * phi))
 
-            if i > 0:
+            if i == 0:
+                base_overlap = overlap_mask
+                base_n_valid = n_valid
+            else:
                 evidence = F.interpolate(evidence, size=base_size,
                                          mode='bilinear', align_corners=False)
                 disagreement = F.interpolate(disagreement, size=base_size,
@@ -436,5 +592,7 @@ class LevyPyramidFusion(PyramidFusion):
             'disagreement': disagreement_acc,
             'sigma': sigma_acc,
             'sigma_calibrated': self.calib_a * sigma_acc + self.calib_b,
+            'n_valid': base_n_valid,
+            'overlap_mask': base_overlap,
             'per_scale': scale_maps,
         }

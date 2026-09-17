@@ -1,12 +1,15 @@
-import torch
-import numpy as np
-import torch.nn as nn
-from opencood.pcdet_utils.pointnet2.pointnet2_stack import voxel_pool_modules as voxelpool_stack_modules
-from opencood.utils import common_utils
-from opencood.pcdet_utils.iou3d_nms.iou3d_nms_utils import boxes_iou3d_gpu
-from opencood.utils import box_utils
-from icecream import ic
 from copy import deepcopy
+
+import numpy as np
+import torch
+from torch import nn
+
+from opencood.pcdet_utils.iou3d_nms.iou3d_nms_utils import boxes_iou3d_gpu
+from opencood.pcdet_utils.pointnet2.pointnet2_stack import (
+    voxel_pool_modules as voxelpool_stack_modules,
+)
+from opencood.utils import box_utils, common_utils
+
 
 class VoxelRCNNHead(nn.Module):
     def __init__(self, model_cfg, backbone_channels):    

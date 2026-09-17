@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+
 from opencood.loss.point_pillar_depth_loss import PointPillarDepthLoss
 from opencood.loss.point_pillar_loss import sigmoid_focal_loss
+
 
 class PointPillarPyramidLoss(PointPillarDepthLoss):
     def __init__(self, args):

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Hao Xiang haxiang@g.ucla.edu
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -10,16 +9,15 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from opencood.utils.transformation_utils import dist_to_continuous
-from opencood.data_utils.post_processor.base_postprocessor \
-    import BasePostprocessor
+from opencood.data_utils.post_processor.base_postprocessor import BasePostprocessor
 from opencood.utils import box_utils
+from opencood.utils.transformation_utils import dist_to_continuous
 from opencood.visualization import vis_utils
 
 
 class BevPostprocessor(BasePostprocessor):
     def __init__(self, anchor_params, train):
-        super(BevPostprocessor, self).__init__(anchor_params, train)
+        super().__init__(anchor_params, train)
         # self.geometry_param = anchor_params["geometry"]
         self.geometry_param = anchor_params["geometry_param"]
 

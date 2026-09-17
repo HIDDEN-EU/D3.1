@@ -1,11 +1,11 @@
 """
 Multi-scale window transformer
 """
-import torch
-import torch.nn as nn
 import numpy as np
-
+import torch
 from einops import rearrange
+from torch import nn
+
 from opencood.models.sub_modules.split_attn import SplitAttn
 
 

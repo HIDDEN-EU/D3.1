@@ -1,23 +1,20 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>, Hao Xiang <haxiang@g.ucla.edu>,
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
 import argparse
 import os
-import time
-from typing import OrderedDict
+from collections import OrderedDict
 
-import torch
-import open3d as o3d
-from torch.utils.data import DataLoader, Subset
 import numpy as np
+import torch
+from torch.utils.data import DataLoader, Subset
 
-import opencood.hypes_yaml.yaml_utils as yaml_utils
-from opencood.tools import train_utils, inference_utils
 from opencood.data_utils.datasets import build_dataset
+from opencood.hypes_yaml import yaml_utils
+from opencood.tools import inference_utils, train_utils
 from opencood.utils import eval_utils
-from opencood.visualization import vis_utils, my_vis, simple_vis
+from opencood.visualization import simple_vis
 
 
 def test_parser():

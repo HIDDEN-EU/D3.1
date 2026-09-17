@@ -1,11 +1,4 @@
-from operator import gt
-import numpy as np
-import pickle
-from pyquaternion import Quaternion
 from matplotlib import pyplot as plt
-from icecream import ic
-from torch import margin_ranking_loss
-
 
 
 def visualize(pred_box_tensor, gt_tensor, pcd, show_vis, save_path, dataset=None):

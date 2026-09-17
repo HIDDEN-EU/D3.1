@@ -1,17 +1,20 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import json
 import copy
-import numpy as np
-from opencood.models.sub_modules.box_align_v2 import vis_pose_graph, box_alignment_relative_sample_np
-from opencood.utils.pose_utils import generate_noise
-import seaborn as sns
-import matplotlib.pyplot as plt
+import json
 import os
+
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
 from tqdm import tqdm
-from matplotlib import rcParams
+
+from opencood.models.sub_modules.box_align_v2 import (
+    box_alignment_relative_sample_np,
+    vis_pose_graph,
+)
+
 sns.set(rc={'figure.figsize':(11.7,8.27)})
 
 
@@ -120,8 +123,7 @@ def calc_data(trans_error_list, rot_error_list, filenames, save_path, std):
                 f.write(f"mean: {np.mean(data):.4f}\n")
                 f.write(f"max: {np.max(data):.4f}\n")
                 quantile_list = [0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.97, 0.98, 0.99]
-                for q in quantile_list:
-                    f.write(f"quantile {q:.2f}: {np.quantile(data, q):.4f}\n")
+                f.writelines(f"quantile {q:.2f}: {np.quantile(data, q):.4f}\n" for q in quantile_list)
                 f.write("\n\n")
             
 

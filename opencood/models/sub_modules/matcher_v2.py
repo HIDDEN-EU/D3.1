@@ -4,23 +4,29 @@
     TODO: Add agent-object pose graph optimization
 """
 
-import torch
-from torch import nn
+from collections import OrderedDict
+
 import numpy as np
 import spconv
-from collections import OrderedDict
-import opencood.utils.spconv_utils as spconv_utils
+import torch
+from torch import nn
+
 from opencood.pcdet_utils.iou3d_nms.iou3d_nms_utils import boxes_iou3d_gpu
-from opencood.utils.box_utils import corner_to_center_torch, boxes_to_corners_3d, project_box3d, get_mask_for_boxes_within_range_torch
-from opencood.utils.transformation_utils import x1_to_x2
+from opencood.utils import spconv_utils
+from opencood.utils.box_utils import (
+    boxes_to_corners_3d,
+    corner_to_center_torch,
+    get_mask_for_boxes_within_range_torch,
+    project_box3d,
+)
 from opencood.utils.common_utils import limit_period
-from icecream import ic
+from opencood.utils.transformation_utils import x1_to_x2
 
 
 class MatcherV2(nn.Module):
 
     def __init__(self, cfg, pc_range):
-        super(MatcherV2, self).__init__()
+        super().__init__()
         self.order = cfg['order']
         self.voxel_size = cfg['voxel_size']
         self.feature_source = cfg['feature_source'] # ['x_conv2', 'x_conv3', 'x_conv4']
@@ -69,7 +75,7 @@ class MatcherV2(nn.Module):
             cur_scores_list = [s for s in cur_scores_list if len(s) > 0]
 
             if len(cur_scores_list) == 0:
-                clusters_batch.append([torch.Tensor([0.0, 0.0, 0.0, 1.6, 2.0, 4.0, 0]). #
+                clusters_batch.append([torch.Tensor([0.0, 0.0, 0.0, 1.6, 2.0, 4.0, 0]).
                                       to(torch.device('cuda:0')).view(1, 7)])
                 scores_batch.append([torch.Tensor([0.01]).to(torch.device('cuda:0')).view(-1)])
                 continue

@@ -2,9 +2,11 @@
 Use this tool to plot the feature map for verifying code.
 """
 
+import os
+
 import matplotlib.pyplot as plt
 import torch
-import os
+
 
 def plot_feature(feature, channel, save_path, flag="", vmin=None, vmax=None, colorbar=True):
     """

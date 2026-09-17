@@ -6,19 +6,20 @@ before inter-agent collaborative fusion via PyramidFusion.
 Based on HeterPyramidCollab by Yifan Lu <yifan_lu@sjtu.edu.cn>.
 """
 
-import torch
-import torch.nn as nn
 from collections import Counter
-import torchvision
 
-from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
-from opencood.models.sub_modules.feature_alignnet import AlignNet
-from opencood.models.sub_modules.downsample_conv import DownsampleConv
-from opencood.models.sub_modules.naive_compress import NaiveCompressor
+import torch
+import torchvision
+from torch import nn
+
 from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
-from opencood.models.heter_encoders import PointPillar, LiftSplatShoot
-from opencood.utils.transformation_utils import normalize_pairwise_tfm
+from opencood.models.heter_encoders import LiftSplatShoot, PointPillar
+from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
+from opencood.models.sub_modules.downsample_conv import DownsampleConv
+from opencood.models.sub_modules.feature_alignnet import AlignNet
+from opencood.models.sub_modules.naive_compress import NaiveCompressor
 from opencood.utils.model_utils import check_trainable_module, fix_bn
+from opencood.utils.transformation_utils import normalize_pairwise_tfm
 
 
 class FusedPyramidCollab(nn.Module):
@@ -35,7 +36,7 @@ class FusedPyramidCollab(nn.Module):
     """
 
     def __init__(self, args):
-        super(FusedPyramidCollab, self).__init__()
+        super().__init__()
         self.args = args
 
         modality_name_list = [

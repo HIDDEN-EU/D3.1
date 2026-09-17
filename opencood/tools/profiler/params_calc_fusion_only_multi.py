@@ -1,15 +1,23 @@
-import opencood.hypes_yaml.yaml_utils as yaml_utils
-from opencood.tools import train_utils
 import argparse
-import pickle
-from opencood.utils.common_utils import update_dict
 import importlib
+import pickle
 import sys
+import time
+
 import torch
-from opencood.tools.profiler.params_calc_fusion_only import inference_throughput_naive, \
-                                                            inference_throughput_cuda_event, \
-                                                            InputFeatureExtractor, SubModel, HmvitModel, PyramidModel
-import time 
+
+from opencood.hypes_yaml import yaml_utils
+from opencood.tools import train_utils
+from opencood.tools.profiler.params_calc_fusion_only import (
+    HmvitModel,
+    InputFeatureExtractor,
+    PyramidModel,
+    SubModel,
+    inference_throughput_cuda_event,
+    inference_throughput_naive,
+)
+from opencood.utils.common_utils import update_dict
+
 
 def train_parser():
     parser = argparse.ArgumentParser(description="Profiler.")

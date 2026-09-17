@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>, OpenPCDet
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -11,20 +10,17 @@ import sys
 
 import numpy as np
 import torch
-from torch.nn.functional import sigmoid
-import torch.nn.functional as F
 
-from opencood.data_utils.post_processor.base_postprocessor \
-    import BasePostprocessor
+from opencood.data_utils.post_processor.base_postprocessor import BasePostprocessor
 from opencood.utils import box_utils
 from opencood.utils.box_overlaps import bbox_overlaps
-from opencood.visualization import vis_utils
 from opencood.utils.common_utils import limit_period
+from opencood.visualization import vis_utils
 
 
 class VoxelPostprocessor(BasePostprocessor):
     def __init__(self, anchor_params, train):
-        super(VoxelPostprocessor, self).__init__(anchor_params, train)
+        super().__init__(anchor_params, train)
         self.anchor_num = self.params['anchor_args']['num']
 
     def generate_anchor_box(self):

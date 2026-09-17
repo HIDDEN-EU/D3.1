@@ -1,17 +1,20 @@
 
-from email.mime import base
-from tkinter import Y
-from opencood.utils.transformation_utils import x_to_world, x1_to_x2
-from opencood.utils.box_utils import create_bbx, mask_boxes_outside_range_numpy, corner_to_center
-from torch.utils.data import Subset
-from matplotlib import pyplot as plt
+import copy
+import os
+
 import matplotlib
 import matplotlib.patches as mpatches
-import opencood.visualization.simple_plot3d.canvas_3d as canvas_3d
 import numpy as np
-import os
-import copy
+from matplotlib import pyplot as plt
 from pyquaternion import Quaternion
+
+from opencood.utils.box_utils import (
+    corner_to_center,
+    create_bbx,
+    mask_boxes_outside_range_numpy,
+)
+from opencood.utils.transformation_utils import x1_to_x2, x_to_world
+from opencood.visualization.simple_plot3d import canvas_3d
 
 v2x = True
 if v2x:
@@ -206,7 +209,7 @@ def main():
         cav_invert_dict[cav_id] = idx
 
     recs = []
-    for i in range(0,len(COLOR)):
+    for i in range(len(COLOR)):
         recs.append(mpatches.Rectangle((0,0),1,1,fc=COLOR[i]))
 
     ## matplotlib setting

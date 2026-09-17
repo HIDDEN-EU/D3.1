@@ -1,7 +1,7 @@
-import cv2
-import numpy as np
 import glob
 import os
+
+import cv2
 
 projnames = os.listdir("./result")
 projnames = ['scene_overview_Mixed2','location_in_bev2']

@@ -1,13 +1,14 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
+import glob
 import os
+import re
 import sys
 from collections import OrderedDict
-import glob
-import re
+
+import torch
+
 
 def get_model_path_from_dir(model_dir):
     def findLastCheckpoint(save_dir):

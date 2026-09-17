@@ -1,21 +1,25 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
-from opencood.loss.point_pillar_loss import PointPillarLoss, \
-    one_hot_f, softmax_cross_entropy_with_logits, weighted_smooth_l1_loss, sigmoid_focal_loss
-import d3d.mathh as mathh
-from opencood.utils.common_utils import limit_period
-from opencood.data_utils.post_processor.voxel_postprocessor import VoxelPostprocessor
 from functools import partial
+
+import torch
+import torch.nn.functional as F
+from d3d import mathh
+from torch import nn
+
+from opencood.data_utils.post_processor.voxel_postprocessor import VoxelPostprocessor
+from opencood.loss.point_pillar_loss import (
+    PointPillarLoss,
+    sigmoid_focal_loss,
+    softmax_cross_entropy_with_logits,
+    weighted_smooth_l1_loss,
+)
+
 
 class PointPillarUncertaintyLoss(PointPillarLoss):
     def __init__(self, args):
-        super(PointPillarUncertaintyLoss, self).__init__(args)
+        super().__init__(args)
         self.uncertainty = args['uncertainty']
         self.uncertainty_dim = args['uncertainty']['dim'] # 2 means x, y; 3 means x, y, yaw; 7 means x y z dh dw dl yaw
         self.unc_loss_func = KLLoss(args['uncertainty'])
@@ -194,7 +198,7 @@ class PointPillarUncertaintyLoss(PointPillarLoss):
 
 class KLLoss(nn.Module):
     def __init__(self, args):
-        super(KLLoss, self).__init__()
+        super().__init__()
 
         self.angle_weight = args['angle_weight']
         self.uncertainty_dim = args['dim']

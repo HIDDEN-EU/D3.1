@@ -1,5 +1,5 @@
-from opencood.utils.lidar_corrupt import (announce_lidar_corrupt,
-                                          apply_lidar_corrupt)
+from opencood.utils.lidar_corrupt import announce_lidar_corrupt, apply_lidar_corrupt
+
 '''
 -*- coding: utf-8 -*-
 Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
@@ -12,36 +12,35 @@ Each agent should retrieve the objects itself, and merge them by iou,
 instead of using the cooperative label.
 ''' 
 
-import random
+import copy
 import math
 from collections import OrderedDict
+
 import numpy as np
 import torch
-import copy
-from icecream import ic
-from PIL import Image
-import pickle as pkl
-from opencood.utils import box_utils as box_utils
+
 from opencood.data_utils.pre_processor import build_preprocessor
-from opencood.data_utils.post_processor import build_postprocessor
+from opencood.utils import box_utils as box_utils
 from opencood.utils.camera_utils import (
-    sample_augmentation,
+    img_to_tensor,
     img_transform,
     normalize_img,
-    img_to_tensor,
+    sample_augmentation,
 )
-from opencood.utils.common_utils import merge_features_to_dict, compute_iou, convert_format
-from opencood.utils.transformation_utils import x1_to_x2, x_to_world, get_pairwise_transformation
-from opencood.utils.pose_utils import add_noise_data_dict
-from opencood.data_utils.pre_processor import build_preprocessor
+from opencood.utils.common_utils import (
+    compute_iou,
+    convert_format,
+    merge_features_to_dict,
+    read_json,
+)
+from opencood.utils.heter_utils import Adaptor
 from opencood.utils.pcd_utils import (
-    mask_points_by_range,
+    downsample_lidar_minimum,
     mask_ego_points,
     shuffle_points,
-    downsample_lidar_minimum,
 )
-from opencood.utils.common_utils import read_json
-from opencood.utils.heter_utils import Adaptor
+from opencood.utils.pose_utils import add_noise_data_dict
+from opencood.utils.transformation_utils import get_pairwise_transformation, x1_to_x2
 
 
 def getIntermediateheterFusionDataset(cls):
@@ -390,7 +389,9 @@ def getIntermediateheterFusionDataset(cls):
             # box align to correct pose.
             # stage1_content contains all agent. Even out of comm range.
             if self.box_align and str(idx) in self.stage1_result.keys():
-                from opencood.models.sub_modules.box_align_v2 import box_alignment_relative_sample_np
+                from opencood.models.sub_modules.box_align_v2 import (
+                    box_alignment_relative_sample_np,
+                )
                 stage1_content = self.stage1_result[str(idx)]
                 if stage1_content is not None:
                     all_agent_id_list = stage1_content['cav_id_list'] # include those out of range

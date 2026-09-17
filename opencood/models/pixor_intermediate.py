@@ -1,20 +1,19 @@
-# -*- coding: utf-8 -*-
 # Author: Hao Xiang <haxiang@g.ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
 import math
 
-import torch.nn as nn
+from torch import nn
 
 from opencood.models.fuse_modules.self_attn import AttFusion
-from opencood.models.pixor import Bottleneck, BackBone, Header
+from opencood.models.pixor import BackBone, Bottleneck, Header
 
 
 class BackBoneIntermediate(BackBone):
 
     def __init__(self, block, num_block, geom, use_bn=True):
-        super(BackBoneIntermediate, self).__init__(block,
+        super().__init__(block,
                                                    num_block,
                                                    geom, use_bn)
 
@@ -56,7 +55,7 @@ class PIXORIntermediate(nn.Module):
     """
 
     def __init__(self, args):
-        super(PIXORIntermediate, self).__init__()
+        super().__init__()
         geom = args["geometry_param"]
         use_bn = args["use_bn"]
         self.backbone = BackBoneIntermediate(Bottleneck, [3, 6, 6, 3],

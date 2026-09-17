@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>, Hao Xiang <haxiang@g.ucla.edu>,
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -7,9 +6,10 @@
 Utility functions related to point cloud
 """
 
-import open3d as o3d
 import numpy as np
+import open3d as o3d
 from pypcd import pypcd
+
 
 def pcd_to_np(pcd_file):
     """
@@ -195,7 +195,7 @@ def downsample_lidar_minimum(pcd_np_list):
 
     for i in range(len(pcd_np_list)):
         num = pcd_np_list[i].shape[0]
-        minimum = num if minimum > num else minimum
+        minimum = min(minimum, num)
 
     for (i, pcd_np) in enumerate(pcd_np_list):
         pcd_np_list[i] = downsample_lidar(pcd_np, minimum)

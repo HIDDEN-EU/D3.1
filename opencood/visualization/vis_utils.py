@@ -1,19 +1,16 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>, Hao Xiang <haxiang@g.ucla.edu>,
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import time
 
 import cv2
-import numpy as np
-import open3d as o3d
 import matplotlib
 import matplotlib.pyplot as plt
-
+import numpy as np
+import open3d as o3d
 from matplotlib import cm
 
-from opencood.utils import box_utils
-from opencood.utils import common_utils
+from opencood.utils import box_utils, common_utils
 
 VIRIDIS = np.array(cm.get_cmap('plasma').colors)
 VID_RANGE = np.linspace(0.0, 1.0, VIRIDIS.shape[0])

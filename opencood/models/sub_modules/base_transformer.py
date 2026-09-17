@@ -1,7 +1,6 @@
 import torch
-from torch import nn
-
 from einops import rearrange
+from torch import nn
 
 
 class PreNorm(nn.Module):
@@ -131,4 +130,3 @@ class BaseTransformer(nn.Module):
         # B, H, W, C
         output = output[:, 0]
 
-        return 

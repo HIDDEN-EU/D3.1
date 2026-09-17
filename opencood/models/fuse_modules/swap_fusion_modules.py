@@ -3,8 +3,8 @@ This class is about swap fusion applications
 """
 import torch
 from einops import rearrange
-from torch import nn, einsum
 from einops.layers.torch import Rearrange, Reduce
+from torch import einsum, nn
 
 from opencood.models.sub_modules.base_transformer import FeedForward, PreNormResidual
 
@@ -141,7 +141,7 @@ class SwapFusionBlockMask(nn.Module):
                  window_size,
                  agent_size,
                  drop_out):
-        super(SwapFusionBlockMask, self).__init__()
+        super().__init__()
 
         self.window_size = window_size
 
@@ -204,7 +204,7 @@ class SwapFusionBlock(nn.Module):
                  window_size,
                  agent_size,
                  drop_out):
-        super(SwapFusionBlock, self).__init__()
+        super().__init__()
         # b = batch * max_cav
         self.block = nn.Sequential(
             Rearrange('b m d (x w1) (y w2) -> b m x y w1 w2 d',
@@ -235,7 +235,7 @@ class SwapFusionEncoder(nn.Module):
     """
 
     def __init__(self, args):
-        super(SwapFusionEncoder, self).__init__()
+        super().__init__()
 
         self.layers = nn.ModuleList([])
         self.depth = args['depth']

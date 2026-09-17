@@ -1,16 +1,15 @@
-import torch
-from torch import nn
 import numpy as np
+from torch import nn
 
+from opencood.models.sub_modules.cia_ssd_utils import SSFA, Head
+from opencood.models.sub_modules.height_compression import HeightCompression
 from opencood.models.sub_modules.mean_vfe import MeanVFE
 from opencood.models.sub_modules.sparse_backbone_3d import VoxelBackBone8x
-from opencood.models.sub_modules.height_compression import HeightCompression
-from opencood.models.sub_modules.cia_ssd_utils import SSFA, Head
 
 
 class CIASSD(nn.Module):
     def __init__(self, args):
-        super(CIASSD, self).__init__()
+        super().__init__()
         lidar_range = np.array(args['lidar_range'])
         grid_size = np.round((lidar_range[3:6] - lidar_range[:3]) /
                              np.array(args['voxel_size'])).astype(np.int64)

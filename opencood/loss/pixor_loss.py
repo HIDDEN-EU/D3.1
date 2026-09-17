@@ -1,18 +1,16 @@
-# -*- coding: utf-8 -*-
 # Author: Hao Xiang <haxiang@g.ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
-from functools import reduce
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class PixorLoss(nn.Module):
     def __init__(self, args):
-        super(PixorLoss, self).__init__()
+        super().__init__()
         self.alpha = args["alpha"]
         self.beta = args["beta"]
         self.loss_dict = {}

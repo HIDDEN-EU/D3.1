@@ -1,4 +1,3 @@
-import os
 import torch
 from torch import nn
 from torch.autograd import Variable
@@ -21,7 +20,7 @@ class ConvGRUCell(nn.Module):
         :param dtype: torch.cuda.FloatTensor or torch.FloatTensor
             Whether or not to use cuda.
         """
-        super(ConvGRUCell, self).__init__()
+        super().__init__()
         self.height, self.width = input_size
         self.padding = kernel_size[0] // 2, kernel_size[1] // 2
         self.hidden_dim = hidden_dim
@@ -96,7 +95,7 @@ class ConvGRU(nn.Module):
         :param return_all_layers: bool
             if return hidden and cell states for all layers
         """
-        super(ConvGRU, self).__init__()
+        super().__init__()
 
         # Make sure that both `kernel_size` and
         # `hidden_dim` are lists having len == num_layers
@@ -115,7 +114,7 @@ class ConvGRU(nn.Module):
         self.return_all_layers = return_all_layers
 
         cell_list = []
-        for i in range(0, self.num_layers):
+        for i in range(self.num_layers):
             cur_input_dim = input_dim if i == 0 else hidden_dim[i - 1]
             cell_list.append(ConvGRUCell(input_size=(self.height, self.width),
                                          input_dim=cur_input_dim,

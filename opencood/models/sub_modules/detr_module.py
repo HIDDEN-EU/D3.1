@@ -1,9 +1,12 @@
-import torch
-import torch.nn as nn
-import math
 import copy
-from opencood.models.sub_modules.ms_deform_attn import MSDeformAttn
+import math
+
+import torch
 import torch.nn.functional as F
+from torch import nn
+
+from opencood.models.sub_modules.ms_deform_attn import MSDeformAttn
+
 
 class PositionEmbeddingSine(nn.Module):
     """

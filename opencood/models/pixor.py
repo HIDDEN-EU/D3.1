@@ -1,13 +1,11 @@
-# -*- coding: utf-8 -*-
 # Author: Hao Xiang <haxiang@g.ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
 import math
 
-import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 def conv3x3(in_planes, out_planes, stride=1, bias=False):
@@ -20,7 +18,7 @@ class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, in_planes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
+        super().__init__()
         self.conv1 = conv3x3(in_planes, planes, stride, bias=True)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -53,7 +51,7 @@ class Bottleneck(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1, downsample=None,
                  use_bn=True):
-        super(Bottleneck, self).__init__()
+        super().__init__()
         bias = not use_bn
         self.use_bn = use_bn
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=bias)
@@ -106,7 +104,7 @@ class Bottleneck(nn.Module):
 class BackBone(nn.Module):
 
     def __init__(self, block, num_block, geom, use_bn=True):
-        super(BackBone, self).__init__()
+        super().__init__()
 
         self.use_bn = use_bn
 
@@ -217,7 +215,7 @@ class BackBone(nn.Module):
 class Header(nn.Module):
 
     def __init__(self, use_bn=True):
-        super(Header, self).__init__()
+        super().__init__()
 
         self.use_bn = use_bn
         bias = not use_bn
@@ -274,7 +272,7 @@ class PIXOR(nn.Module):
     """
 
     def __init__(self, args):
-        super(PIXOR, self).__init__()
+        super().__init__()
         geom = args["geometry_param"]
         use_bn = args["use_bn"]
         self.backbone = BackBone(Bottleneck, [3, 6, 6, 3], geom, use_bn)

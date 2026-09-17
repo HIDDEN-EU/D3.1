@@ -1,19 +1,18 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>, OpenPCDet
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
-import torch.nn as nn
+from torch import nn
 
+from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
+from opencood.models.sub_modules.height_compression import HeightCompression
 from opencood.models.sub_modules.mean_vfe import MeanVFE
 from opencood.models.sub_modules.sparse_backbone_3d import VoxelBackBone8x
-from opencood.models.sub_modules.height_compression import HeightCompression
-from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
 
 
 class Second(nn.Module):
     def __init__(self, args):
-        super(Second, self).__init__()
+        super().__init__()
 
         # mean_vfe
         self.mean_vfe = MeanVFE(args['mean_vfe'], 4)

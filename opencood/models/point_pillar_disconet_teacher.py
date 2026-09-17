@@ -1,19 +1,17 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
+from torch import nn
 
-
-from opencood.models.sub_modules.pillar_vfe import PillarVFE
-from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
 from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
+from opencood.models.sub_modules.pillar_vfe import PillarVFE
+from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
+
 
 class PointPillarDiscoNetTeacher(nn.Module):
     def __init__(self, args):
-        super(PointPillarDiscoNetTeacher, self).__init__()
+        super().__init__()
 
         # PIllar VFE
         self.pillar_vfe = PillarVFE(args['pillar_vfe'],

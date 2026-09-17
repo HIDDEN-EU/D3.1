@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -6,15 +5,15 @@
 Template for AnchorGenerator
 """
 
+import cv2
 import numpy as np
 import torch
-import cv2
 
-from opencood.utils import box_utils
-from opencood.utils import common_utils
+from opencood.utils import box_utils, common_utils
 from opencood.utils.transformation_utils import x1_to_x2
 
-class BasePostprocessor(object):
+
+class BasePostprocessor:
     """
     Template for Anchor generator.
 

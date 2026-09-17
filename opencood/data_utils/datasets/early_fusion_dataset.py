@@ -1,21 +1,20 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import numpy as np
-from opencood.utils.pcd_utils import downsample_lidar_minimum
 import math
 from collections import OrderedDict
 
+import numpy as np
+import torch
+
 from opencood.utils import box_utils
 from opencood.utils.common_utils import merge_features_to_dict
-from opencood.data_utils.post_processor import build_postprocessor
-from opencood.data_utils.pre_processor import build_preprocessor
-from opencood.hypes_yaml.yaml_utils import load_yaml
-from opencood.utils.pcd_utils import \
-    mask_points_by_range, mask_ego_points, shuffle_points, \
-    downsample_lidar_minimum
+from opencood.utils.pcd_utils import (
+    downsample_lidar_minimum,
+    mask_ego_points,
+    mask_points_by_range,
+    shuffle_points,
+)
 from opencood.utils.transformation_utils import x1_to_x2
 
 
@@ -26,7 +25,7 @@ def getEarlyFusionDataset(cls):
         point cloud to the ego vehicle.
         """
         def __init__(self, params, visualize, train=True):
-            super(EarlyFusionDataset, self).__init__(params, visualize, train)
+            super().__init__(params, visualize, train)
             self.supervise_single = True if ('supervise_single' in params['model']['args'] and params['model']['args']['supervise_single']) \
                                         else False
             assert self.supervise_single is False

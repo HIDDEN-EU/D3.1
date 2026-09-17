@@ -1,26 +1,32 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
-from icecream import ic
 import numpy as np
-from opencood.models.sub_modules.pillar_vfe import PillarVFE
-from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
+import torch
+from torch import nn
+
+from opencood.models.fuse_modules.fusion_in_one import (
+    AttFusion,
+    DiscoFusion,
+    MaxFusion,
+    V2VNetFusion,
+    V2XViTFusion,
+)
 from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
 from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
 from opencood.models.sub_modules.naive_compress import NaiveCompressor
-from opencood.models.fuse_modules.fusion_in_one import MaxFusion, AttFusion, DiscoFusion, V2VNetFusion, V2XViTFusion
+from opencood.models.sub_modules.pillar_vfe import PillarVFE
+from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
 from opencood.utils.transformation_utils import normalize_pairwise_tfm
+
 
 class CenterPointBaseline(nn.Module):
     """
     F-Cooper implementation with point pillar backbone.
     """
     def __init__(self, args):
-        super(CenterPointBaseline, self).__init__()
+        super().__init__()
 
         self.pillar_vfe = PillarVFE(args['pillar_vfe'],
                                     num_point_features=4,

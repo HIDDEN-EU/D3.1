@@ -3,8 +3,8 @@ Pillar VFE, credits to OpenPCDet.
 """
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class PFNLayer(nn.Module):

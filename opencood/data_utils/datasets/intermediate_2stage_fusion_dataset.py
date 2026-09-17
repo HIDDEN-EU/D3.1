@@ -1,34 +1,29 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import random
+import copy
 import math
 from collections import OrderedDict
+
 import numpy as np
 import torch
-import copy
-from icecream import ic
-from PIL import Image
-import pickle as pkl
+
 from opencood.utils import box_utils as box_utils
-from opencood.data_utils.pre_processor import build_preprocessor
-from opencood.data_utils.post_processor import build_postprocessor
 from opencood.utils.camera_utils import (
-    sample_augmentation,
+    img_to_tensor,
     img_transform,
     normalize_img,
-    img_to_tensor,
+    sample_augmentation,
 )
 from opencood.utils.common_utils import merge_features_to_dict
-from opencood.utils.transformation_utils import x1_to_x2, x_to_world, get_pairwise_transformation
-from opencood.utils.pose_utils import add_noise_data_dict
 from opencood.utils.pcd_utils import (
-    mask_points_by_range,
+    downsample_lidar_minimum,
     mask_ego_points,
     shuffle_points,
-    downsample_lidar_minimum,
 )
+from opencood.utils.pose_utils import add_noise_data_dict
+from opencood.utils.transformation_utils import get_pairwise_transformation, x1_to_x2
+
 
 def getIntermediate2stageFusionDataset(cls):
     """
@@ -100,7 +95,7 @@ def getIntermediate2stageFusionDataset(cls):
                 projected_lidar = \
                     box_utils.project_points_by_matrix_torch(lidar_np[:, :3],
                                                                 transformation_matrix)
-                if self.proj_first: # 
+                if self.proj_first:
                     lidar_np[:, :3] = projected_lidar
 
                 if self.visualize:

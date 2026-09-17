@@ -1,19 +1,17 @@
 # Author: Yangheng Zhao <zhaoyangheng-sjtu@sjtu.edu.cn>
 
-import os
 import pickle
-from collections import OrderedDict
-from typing import Dict
 from abc import abstractmethod
+from collections import OrderedDict
+
 import numpy as np
-import torch
 from torch.utils.data import Dataset
 
 from opencood.data_utils.augmentor.data_augmentor import DataAugmentor
-from opencood.utils.common_utils import read_json
-from opencood.utils.transformation_utils import tfm_to_pose
-from opencood.data_utils.pre_processor import build_preprocessor
 from opencood.data_utils.post_processor import build_postprocessor
+from opencood.data_utils.pre_processor import build_preprocessor
+from opencood.utils.transformation_utils import tfm_to_pose
+
 
 class V2XSIMBaseDataset(Dataset):
     """
@@ -23,7 +21,7 @@ class V2XSIMBaseDataset(Dataset):
     """
 
     def __init__(self,
-                 params: Dict,
+                 params: dict,
                  visualize: bool = False,
                  train: bool = True):
         self.params = params

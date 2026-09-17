@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>, Runsheng Xu <rxx3386@ucla.edu>, Hao Xiang <haxiang@g.ucla.edu>,
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -6,16 +5,16 @@
 """
 Bounding box related utility functions
 """
+import copy
 import sys
 
 import numpy as np
-
 import torch
 import torch.nn.functional as F
-import opencood.utils.common_utils as common_utils
-from opencood.utils.transformation_utils import x1_to_x2, x_to_world
 from pyquaternion import Quaternion
-import copy
+
+from opencood.utils import common_utils
+from opencood.utils.transformation_utils import x1_to_x2, x_to_world
 
 
 def corner_to_center_torch(corner3d, order='lwh'):
@@ -548,7 +547,6 @@ def project_world_objects_v2x(object_dict,
 
     output_dict: [x,y,z, lwh or hwl, yaw] 
     """
-    from icecream import ic
     gt_boxes = object_dict['gt_boxes']
     object_ids = object_dict['object_ids']
     for i, object_content in enumerate(gt_boxes):

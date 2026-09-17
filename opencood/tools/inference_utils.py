@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -8,12 +7,13 @@ from collections import OrderedDict
 
 import numpy as np
 import torch
+from sklearn.metrics import mean_squared_error
 
+from opencood.utils.box_utils import create_bbx, nms_rotated, project_box3d
+from opencood.utils.camera_utils import indices_to_depth
 from opencood.utils.common_utils import torch_tensor_to_numpy
 from opencood.utils.transformation_utils import get_relative_transformation
-from opencood.utils.box_utils import create_bbx, project_box3d, nms_rotated
-from opencood.utils.camera_utils import indices_to_depth
-from sklearn.metrics import mean_squared_error
+
 
 def inference_late_fusion(batch_data, model, dataset):
     """

@@ -7,22 +7,18 @@ Modify: Yifan Lu
 Intermediate fusion for camera based collaboration
 """
 
-from numpy import record
-import torch
 from torch import nn
-from efficientnet_pytorch import EfficientNet
-from torchvision.models.resnet import resnet18
-from icecream import ic
+
 from opencood.models.lift_splat_shoot import LiftSplatShoot
-from opencood.utils.camera_utils import gen_dx_bx, cumsum_trick, QuickCumsum
-from opencood.models.sub_modules.lss_submodule import BevEncodeMSFusion, BevEncodeSSFusion, Up, CamEncode, BevEncode
-from opencood.models.sub_modules.downsample_conv import DownsampleConv
-from matplotlib import pyplot as plt
+from opencood.models.sub_modules.lss_submodule import (
+    BevEncodeMSFusion,
+    BevEncodeSSFusion,
+)
 
 
 class LiftSplatShootIntermediate(LiftSplatShoot):
     def __init__(self, args): 
-        super(LiftSplatShootIntermediate, self).__init__(args)
+        super().__init__(args)
 
         fusion_args = args['fusion_args']
         self.ms = args['fusion_args']['core_method'].endswith("ms")

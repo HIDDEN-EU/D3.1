@@ -2,10 +2,9 @@ import torch
 from torch import nn
 
 
-
 class SSFA(nn.Module):
     def __init__(self, args):
-        super(SSFA, self).__init__()
+        super().__init__()
         self._num_input_features = args['feature_num']  # 128
 
         seq = [nn.ZeroPad2d(1)]
@@ -76,7 +75,7 @@ def get_conv_layers(conv_name, in_channels, out_channels, n_layers, kernel_size,
 
 class Head(nn.Module):
     def __init__(self, num_input, num_pred, num_cls, num_iou=2, use_dir=False, num_dir=1):
-        super(Head, self).__init__()
+        super().__init__()
         self.use_dir = use_dir
 
         self.conv_box = nn.Conv2d(num_input, num_pred, 1)  # 128 -> 14

@@ -1,22 +1,21 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>, Runsheng Xu <rxx3386@ucla.edu>, Hao Xiang <haxiang@g.ucla.edu>,
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import argparse
-import os
-import time
-from typing import OrderedDict
 import importlib
-import torch
-import open3d as o3d
-from torch.utils.data import DataLoader, Subset
+import os
+
 import numpy as np
-import opencood.hypes_yaml.yaml_utils as yaml_utils
-from opencood.tools import train_utils, inference_utils
+import torch
+from torch.utils.data import DataLoader
+
 from opencood.data_utils.datasets import build_dataset
+from opencood.hypes_yaml import yaml_utils
+from opencood.tools import inference_utils, train_utils
 from opencood.utils import eval_utils
-from opencood.visualization import vis_utils, my_vis, simple_vis
 from opencood.utils.common_utils import update_dict
+from opencood.visualization import simple_vis
+
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 def test_parser():

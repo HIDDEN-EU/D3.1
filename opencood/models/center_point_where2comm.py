@@ -1,17 +1,19 @@
-import torch.nn as nn
 import numpy as np
-from opencood.models.sub_modules.pillar_vfe import PillarVFE
-from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
+import torch
+from torch import nn
+
+from opencood.models.fuse_modules.where2comm_attn import Where2comm
 from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
 from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
 from opencood.models.sub_modules.naive_compress import NaiveCompressor
-from opencood.models.fuse_modules.where2comm_attn import Where2comm
-import torch
+from opencood.models.sub_modules.pillar_vfe import PillarVFE
+from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
+
 
 class CenterPointWhere2comm(nn.Module):
     def __init__(self, args):
-        super(CenterPointWhere2comm, self).__init__()
+        super().__init__()
 
         # PIllar VFE
         self.pillar_vfe = PillarVFE(args['pillar_vfe'],

@@ -1,20 +1,18 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
 import numpy as np
+import torch
+from torch import nn
 
-
+from opencood.models.sub_modules.att_bev_backbone import AttBEVBackbone
 from opencood.models.sub_modules.pillar_vfe import PillarVFE
 from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
-from opencood.models.sub_modules.att_bev_backbone import AttBEVBackbone
 
 
 class CenterPointIntermediate(nn.Module):
     def __init__(self, args):
-        super(CenterPointIntermediate, self).__init__()
+        super().__init__()
 
         # PIllar VFE
         self.pillar_vfe = PillarVFE(args['pillar_vfe'],

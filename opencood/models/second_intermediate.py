@@ -1,20 +1,19 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
 import torch
-import torch.nn as nn
+from torch import nn
 
+from opencood.models.sub_modules.att_bev_backbone import AttBEVBackbone
+from opencood.models.sub_modules.height_compression import HeightCompression
 from opencood.models.sub_modules.mean_vfe import MeanVFE
 from opencood.models.sub_modules.sparse_backbone_3d import VoxelBackBone8x
-from opencood.models.sub_modules.height_compression import HeightCompression
-from opencood.models.sub_modules.att_bev_backbone  import AttBEVBackbone
 
 
 class SecondIntermediate(nn.Module):
     def __init__(self, args):
-        super(SecondIntermediate, self).__init__()
+        super().__init__()
 
         self.batch_size = args['batch_size']
         # mean_vfe

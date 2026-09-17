@@ -1,35 +1,29 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import random
+import copy
 import math
 from collections import OrderedDict
+
 import numpy as np
 import torch
-import copy
-from icecream import ic
-from PIL import Image
-import pickle as pkl
+
 from opencood.utils import box_utils as box_utils
-from opencood.data_utils.pre_processor import build_preprocessor
-from opencood.data_utils.post_processor import build_postprocessor
 from opencood.utils.camera_utils import (
-    sample_augmentation,
+    img_to_tensor,
     img_transform,
     normalize_img,
-    img_to_tensor,
+    sample_augmentation,
 )
-from opencood.utils.common_utils import merge_features_to_dict
-from opencood.utils.transformation_utils import x1_to_x2, x_to_world, get_pairwise_transformation
-from opencood.utils.pose_utils import add_noise_data_dict
+from opencood.utils.common_utils import merge_features_to_dict, read_json
 from opencood.utils.pcd_utils import (
-    mask_points_by_range,
-    mask_ego_points,
-    shuffle_points,
     downsample_lidar_minimum,
+    mask_ego_points,
+    mask_points_by_range,
+    shuffle_points,
 )
-from opencood.utils.common_utils import read_json
+from opencood.utils.pose_utils import add_noise_data_dict
+from opencood.utils.transformation_utils import get_pairwise_transformation, x1_to_x2
 
 
 def getIntermediateFusionDataset(cls):
@@ -307,7 +301,9 @@ def getIntermediateFusionDataset(cls):
             # box align to correct pose.
             # stage1_content contains all agent. Even out of comm range.
             if self.box_align and str(idx) in self.stage1_result.keys():
-                from opencood.models.sub_modules.box_align_v2 import box_alignment_relative_sample_np
+                from opencood.models.sub_modules.box_align_v2 import (
+                    box_alignment_relative_sample_np,
+                )
                 stage1_content = self.stage1_result[str(idx)]
                 if stage1_content is not None:
                     all_agent_id_list = stage1_content['cav_id_list'] # include those out of range

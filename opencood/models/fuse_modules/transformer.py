@@ -2,17 +2,17 @@
 Implementation of Simple transformer fusion.
 """
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import kornia
+import torch
+import torch.nn.functional as F
+from torch import nn
 
 
 class TransformerMessage(nn.Module):
     def __init__(self, 
                  in_channels=64,
                  trans_layer=[3]):
-        super(TransformerMessage, self).__init__()
+        super().__init__()
         self.in_channels = in_channels
 
         self.trans_layer = trans_layer
@@ -125,7 +125,6 @@ class TransformerMessage(nn.Module):
 
 
 if __name__=="__main__":
-    from icecream import ic
     x = torch.rand((64,6,8))  # [C,H,W]
     temperature = 10000
     num_pos_feats = x.shape[-3] // 2  # [d]

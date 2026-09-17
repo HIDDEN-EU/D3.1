@@ -1,15 +1,15 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-from torch import nn
-from opencood.models.sub_modules.torch_transformation_utils import \
-    warp_affine_simple
-from opencood.models.fuse_modules.fuse_utils import regroup as Regroup
 import numpy as np
+import torch
 import torch.nn.functional as F
 from einops import repeat
+from torch import nn
+
+from opencood.models.fuse_modules.fuse_utils import regroup as Regroup
+from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
+
 
 class ScaledDotProductAttention(nn.Module):
     """
@@ -35,7 +35,7 @@ class ScaledDotProductAttention(nn.Module):
     """
 
     def __init__(self, dim):
-        super(ScaledDotProductAttention, self).__init__()
+        super().__init__()
         self.sqrt_dim = np.sqrt(dim)
 
     def forward(self, query, key, value):
@@ -86,7 +86,7 @@ def warp_feature(x, record_len, affine_matrix):
 
 class MaxFusion(nn.Module):
     def __init__(self):
-        super(MaxFusion, self).__init__()
+        super().__init__()
 
     def forward(self, x, record_len, affine_matrix):
         """
@@ -125,7 +125,7 @@ class MaxFusion(nn.Module):
 
 class AttFusion(nn.Module):
     def __init__(self, feature_dims):
-        super(AttFusion, self).__init__()
+        super().__init__()
         self.att = ScaledDotProductAttention(feature_dims)
 
     def forward(self, xx, record_len, affine_matrix):
@@ -152,7 +152,7 @@ class AttFusion(nn.Module):
 
 class DiscoFusion(nn.Module):
     def __init__(self, feature_dims):
-        super(DiscoFusion, self).__init__()
+        super().__init__()
         from opencood.models.fuse_modules.disco_fuse import PixelWeightLayer
         self.pixel_weight_layer = PixelWeightLayer(feature_dims)
 
@@ -202,7 +202,7 @@ class DiscoFusion(nn.Module):
 
 class V2VNetFusion(nn.Module):
     def __init__(self, args):
-        super(V2VNetFusion, self).__init__()
+        super().__init__()
         from opencood.models.sub_modules.convgru import ConvGRU
         in_channels = args['in_channels']
         H, W = args['conv_gru']['H'], args['conv_gru']['W'] # remember to modify for v2xsim dataset
@@ -319,7 +319,7 @@ class V2VNetFusion(nn.Module):
 
 class V2XViTFusion(nn.Module):
     def __init__(self, args):
-        super(V2XViTFusion, self).__init__()
+        super().__init__()
         from opencood.models.sub_modules.v2xvit_basic import V2XTransformer
         self.fusion_net = V2XTransformer(args['transformer'])
 
@@ -373,11 +373,11 @@ class V2XViTFusion(nn.Module):
 
 class CoBEVT(nn.Module):
     def __init__(self, args):
-        super(CoBEVT, self).__init__()
-        from torch import nn
+        super().__init__()
         from einops.layers.torch import Rearrange, Reduce
+        from torch import nn
+
         from opencood.models.fuse_modules.swap_fusion_modules import SwapFusionBlockMask
-        from einops import repeat
 
         self.layers = nn.ModuleList([])
         self.depth = args['depth']

@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import matplotlib.pyplot as plt
-import numpy as np
+
 plt.style.use('ggplot')
 methods = ['HMViT', 'V2XViT', 'CoBEVT','HEAL']
 

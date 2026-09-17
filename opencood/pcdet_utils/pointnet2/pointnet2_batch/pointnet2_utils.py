@@ -1,11 +1,11 @@
-from typing import Tuple
 
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.autograd import Function, Variable
 
-from opencood.pcdet_utils.pointnet2.pointnet2_batch import \
-    pointnet2_batch_cuda as pointnet2
+from opencood.pcdet_utils.pointnet2.pointnet2_batch import (
+    pointnet2_batch_cuda as pointnet2,
+)
 
 
 class FurthestPointSampling(Function):
@@ -77,7 +77,7 @@ gather_operation = GatherOperation.apply
 class ThreeNN(Function):
 
     @staticmethod
-    def forward(ctx, unknown: torch.Tensor, known: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(ctx, unknown: torch.Tensor, known: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Find the three nearest neighbors of unknown in known
         :param ctx:
@@ -132,7 +132,7 @@ class ThreeInterpolate(Function):
         return output
 
     @staticmethod
-    def backward(ctx, grad_out: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def backward(ctx, grad_out: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         :param ctx:
         :param grad_out: (B, C, N) tensor with gradients of outputs
@@ -178,7 +178,7 @@ class GroupingOperation(Function):
         return output
 
     @staticmethod
-    def backward(ctx, grad_out: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def backward(ctx, grad_out: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         :param ctx:
         :param grad_out: (B, C, npoint, nsample) tensor of the gradients of the output from forward
@@ -239,7 +239,7 @@ class QueryAndGroup(nn.Module):
         super().__init__()
         self.radius, self.nsample, self.use_xyz = radius, nsample, use_xyz
 
-    def forward(self, xyz: torch.Tensor, new_xyz: torch.Tensor, features: torch.Tensor = None) -> Tuple[torch.Tensor]:
+    def forward(self, xyz: torch.Tensor, new_xyz: torch.Tensor, features: torch.Tensor = None) -> tuple[torch.Tensor]:
         """
         :param xyz: (B, N, 3) xyz coordinates of the features
         :param new_xyz: (B, npoint, 3) centroids

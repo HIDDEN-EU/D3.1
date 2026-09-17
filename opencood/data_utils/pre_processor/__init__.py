@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 from opencood.data_utils.pre_processor.base_preprocessor import BasePreprocessor
-from opencood.data_utils.pre_processor.voxel_preprocessor import VoxelPreprocessor
 from opencood.data_utils.pre_processor.bev_preprocessor import BevPreprocessor
 from opencood.data_utils.pre_processor.sp_voxel_preprocessor import SpVoxelPreprocessor
+from opencood.data_utils.pre_processor.voxel_preprocessor import VoxelPreprocessor
 
 __all__ = {
     'BasePreprocessor': BasePreprocessor,

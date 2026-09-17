@@ -1,31 +1,21 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 """
 3D Anchor Generator for Voxel
 """
-import math
-import sys
 
 import numpy as np
 import torch
-from torch.nn.functional import sigmoid
-import torch.nn.functional as F
 
-from opencood.data_utils.post_processor.base_postprocessor \
-    import BasePostprocessor
-from opencood.data_utils.post_processor.voxel_postprocessor \
-    import VoxelPostprocessor
+from opencood.data_utils.post_processor.voxel_postprocessor import VoxelPostprocessor
 from opencood.utils import box_utils
-from opencood.utils.box_overlaps import bbox_overlaps
-from opencood.visualization import vis_utils
 from opencood.utils.common_utils import limit_period
 
 
 class UncertaintyVoxelPostprocessor(VoxelPostprocessor):
     def __init__(self, anchor_params, train):
-        super(UncertaintyVoxelPostprocessor, self).__init__(anchor_params, train)
+        super().__init__(anchor_params, train)
     
     def post_process_stage1(self, stage1_output_dict, anchor_box):
         """

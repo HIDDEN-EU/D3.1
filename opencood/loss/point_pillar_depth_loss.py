@@ -1,11 +1,12 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
+
 from opencood.loss.point_pillar_loss import PointPillarLoss
+
 
 class PointPillarDepthLoss(PointPillarLoss):
     def __init__(self, args):
@@ -14,8 +15,8 @@ class PointPillarDepthLoss(PointPillarLoss):
 
 
         self.depth_weight = self.depth['weight']
-        self.smooth_target = True if 'smooth_target' in self.depth and self.depth['smooth_target'] else False
-        self.use_fg_mask = True if 'use_fg_mask' in self.depth and self.depth['use_fg_mask'] else False
+        self.smooth_target = True if self.depth.get('smooth_target') else False
+        self.use_fg_mask = True if self.depth.get('use_fg_mask') else False
         self.fg_weight = 3.25
         self.bg_weight = 0.25
         if self.smooth_target:

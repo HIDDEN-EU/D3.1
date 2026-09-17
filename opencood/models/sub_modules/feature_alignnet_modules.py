@@ -1,13 +1,14 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from timm.layers import DropPath
+from torch import nn
+
 from opencood.models.sub_modules.cbam import BasicBlock
-import math
+
 
 class LayerNorm(nn.Module):
     def __init__(self, normalized_shape, eps=1e-6, data_format="channels_last"):
@@ -131,7 +132,7 @@ class SDTAEncoder(nn.Module):
         self.pwconv1 = nn.Linear(dim, expan_ratio * dim)  # pointwise/1x1 convs, implemented with linear layers
         self.act = nn.GELU()  # TODO: MobileViT is using 'swish'
         self.pwconv2 = nn.Linear(expan_ratio * dim, dim)
-        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones((dim)),
+        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones(dim),
                                   requires_grad=True) if layer_scale_init_value > 0 else None
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
@@ -321,7 +322,7 @@ class ConvNeXtBlock(nn.Module):
         self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
         self.act = nn.GELU()
         self.pwconv2 = nn.Linear(4 * dim, dim)
-        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones((dim)), 
+        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones(dim), 
                                     requires_grad=True) if layer_scale_init_value > 0 else None
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
@@ -367,7 +368,7 @@ Resnet1x1 Aligner
 """
 class ResidualBlock(nn.Module):  
     def __init__(self, in_channels, out_channels, use_1x1conv=False, kernel_size=3, deform=False):
-        super(ResidualBlock, self).__init__()
+        super().__init__()
         if kernel_size == 3:
             padding = 1
             stride = 1

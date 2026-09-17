@@ -1,13 +1,11 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
-import math
 
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch import nn
 
 """
 Gaussian Loss 
@@ -34,7 +32,7 @@ class GaussianFocalLoss(nn.Module):
                  gamma=4.0,
                  reduction='mean',
                  loss_weight=1.0):
-        super(GaussianFocalLoss, self).__init__()
+        super().__init__()
         self.alpha = alpha
         self.gamma = gamma
         self.reduction = reduction
@@ -142,7 +140,7 @@ class RegLoss(nn.Module):
         target (batch x max_objects x dim)
     '''
     def __init__(self):
-        super(RegLoss, self).__init__()
+        super().__init__()
     
     def forward(self, output, mask, ind, target):
         pred = _transpose_and_gather_feat(output, ind)
@@ -161,7 +159,7 @@ class FastFocalLoss(nn.Module):
     Faster and costs much less memory.
     '''
     def __init__(self):
-        super(FastFocalLoss, self).__init__()
+        super().__init__()
 
     def forward(self, out, target, ind, mask, cat):
         '''
@@ -187,7 +185,7 @@ class FastFocalLoss(nn.Module):
 
 class CenterPointLoss(nn.Module):
     def __init__(self, args):
-        super(CenterPointLoss, self).__init__()
+        super().__init__()
 
         self.cls_weight = args['cls_weight']
         self.loc_weight = args['loc_weight']
@@ -210,12 +208,12 @@ class CenterPointLoss(nn.Module):
         target_dict : dict
         """
         # Predictions 
-        box_preds = output_dict['bbox_preds{}'.format(suffix)].permute(0, 2, 3, 1).contiguous()  # [B, H, W, C]
-        cls_preds = clip_sigmoid(output_dict['cls_preds{}'.format(suffix)])
+        box_preds = output_dict[f'bbox_preds{suffix}'].permute(0, 2, 3, 1).contiguous()  # [B, H, W, C]
+        cls_preds = clip_sigmoid(output_dict[f'cls_preds{suffix}'])
         
         # GTs
-        bbox_center = target_dict['object_bbx_center{}'.format(suffix)].cpu().numpy()
-        bbox_mask = target_dict['object_bbx_mask{}'.format(suffix)].cpu().numpy()
+        bbox_center = target_dict[f'object_bbx_center{suffix}'].cpu().numpy()
+        bbox_mask = target_dict[f'object_bbx_mask{suffix}'].cpu().numpy()
         batch_size = bbox_mask.shape[0]
 
         max_gt = int(max(bbox_mask.sum(axis=1)))
@@ -557,8 +555,6 @@ def gaussian_radius(det_size, min_overlap=0.5):
 
 
 import functools
-
-import torch.nn.functional as F
 
 
 def reduce_loss(loss, reduction):

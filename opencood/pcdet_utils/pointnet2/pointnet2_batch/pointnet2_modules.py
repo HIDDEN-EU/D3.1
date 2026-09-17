@@ -1,8 +1,7 @@
-from typing import List
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 from opencood.pcdet_utils.pointnet2.pointnet2_batch import pointnet2_utils
 
@@ -17,7 +16,7 @@ class _PointnetSAModuleBase(nn.Module):
         self.pool_method = 'max_pool'
 
     def forward(self, xyz: torch.Tensor, features: torch.Tensor = None, new_xyz=None) -> (torch.Tensor, torch.Tensor):
-        """
+        r"""
         :param xyz: (B, N, 3) tensor of the xyz coordinates of the features
         :param features: (B, N, C) tensor of the descriptors of the the features
         :param new_xyz:
@@ -58,7 +57,7 @@ class _PointnetSAModuleBase(nn.Module):
 class PointnetSAModuleMSG(_PointnetSAModuleBase):
     """Pointnet set abstraction layer with multiscale grouping"""
 
-    def __init__(self, *, npoint: int, radii: List[float], nsamples: List[int], mlps: List[List[int]], bn: bool = True,
+    def __init__(self, *, npoint: int, radii: list[float], nsamples: list[int], mlps: list[list[int]], bn: bool = True,
                  use_xyz: bool = True, pool_method='max_pool'):
         """
         :param npoint: int
@@ -102,7 +101,7 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
 class PointnetSAModule(PointnetSAModuleMSG):
     """Pointnet set abstraction layer"""
 
-    def __init__(self, *, mlp: List[int], npoint: int = None, radius: float = None, nsample: int = None,
+    def __init__(self, *, mlp: list[int], npoint: int = None, radius: float = None, nsample: int = None,
                  bn: bool = True, use_xyz: bool = True, pool_method='max_pool'):
         """
         :param mlp: list of int, spec of the pointnet before the global max_pool
@@ -122,7 +121,7 @@ class PointnetSAModule(PointnetSAModuleMSG):
 class PointnetFPModule(nn.Module):
     r"""Propigates the features of one set to another"""
 
-    def __init__(self, *, mlp: List[int], bn: bool = True):
+    def __init__(self, *, mlp: list[int], bn: bool = True):
         """
         :param mlp: list of int
         :param bn: whether to use batchnorm

@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import open3d as o3d
-import numpy as np
-import cv2
-from matplotlib import pyplot as plt
-from opencood.utils.subsampling_utils import get_random_subset
 from multiprocessing import Process
+
+import cv2
+import numpy as np
+from matplotlib import pyplot as plt
+
+from opencood.utils.subsampling_utils import get_random_subset
 
 vis = False
 
@@ -197,7 +197,8 @@ def seq_generate():
     n_samples = 1500
 
     import os
-    import opencood.utils.pcd_utils as pcd_utils
+
+    from opencood.utils import pcd_utils
 
     for root_dir in dirs:
         scenario_folders = sorted([os.path.join(root_dir, x)
@@ -354,7 +355,8 @@ if __name__=="__main__":
             "/GPFS/rhome/yifanlu/workspace/dataset/OPV2V/test"]
 
     import os
-    import opencood.utils.pcd_utils as pcd_utils
+
+    from opencood.utils import pcd_utils
 
     scenario_folders = []
     scenario_folders_name = []

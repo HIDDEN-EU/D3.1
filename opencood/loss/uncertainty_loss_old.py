@@ -1,14 +1,16 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
-import d3d.mathh as mathh
-from opencood.utils.common_utils import limit_period
 from functools import partial
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from d3d import mathh
+from torch import nn
+
+from opencood.utils.common_utils import limit_period
+
 
 class WeightedSmoothL1Loss(nn.Module):
     """
@@ -28,7 +30,7 @@ class WeightedSmoothL1Loss(nn.Module):
             code_weights: (#codes) float list if not None.
                 Code-wise weights.
         """
-        super(WeightedSmoothL1Loss, self).__init__()
+        super().__init__()
         self.beta = beta
         if code_weights is not None:
             self.code_weights = np.array(code_weights, dtype=np.float32)
@@ -75,7 +77,7 @@ class WeightedSmoothL1Loss(nn.Module):
 
 class KLLoss(nn.Module):
     def __init__(self, args):
-        super(KLLoss, self).__init__()
+        super().__init__()
 
         self.angle_weight = args['angle_weight']
         self.uncertainty_dim = args['uncertainty_dim']
@@ -187,7 +189,7 @@ class KLLoss(nn.Module):
 
 class PointPillarUncertaintyLoss(nn.Module):
     def __init__(self, args):
-        super(PointPillarUncertaintyLoss, self).__init__()
+        super().__init__()
         self.reg_loss_func = WeightedSmoothL1Loss()
         self.alpha = 0.25
         self.gamma = 2.0

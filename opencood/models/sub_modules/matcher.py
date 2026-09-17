@@ -1,11 +1,17 @@
+
 import torch
 from torch import nn
 
 from opencood.pcdet_utils.iou3d_nms.iou3d_nms_utils import boxes_iou3d_gpu
-from opencood.utils.box_utils import corner_to_center_torch, boxes_to_corners_3d, project_box3d, project_points_by_matrix_torch, get_mask_for_boxes_within_range_torch
+from opencood.utils.box_utils import (
+    boxes_to_corners_3d,
+    corner_to_center_torch,
+    get_mask_for_boxes_within_range_torch,
+    project_box3d,
+    project_points_by_matrix_torch,
+)
 from opencood.utils.transformation_utils import x1_to_x2
-from icecream import ic
-import copy
+
 pi = 3.141592653
 
 
@@ -18,7 +24,7 @@ class Matcher(nn.Module):
      BBox matching with scores to fuse the proposal BBoxes"""
 
     def __init__(self, cfg, pc_range):
-        super(Matcher, self).__init__()
+        super().__init__()
         self.pc_range = pc_range
 
     @torch.no_grad()
@@ -160,7 +166,7 @@ class Matcher(nn.Module):
             # if not project first, first transform the keypoints coords
             if data_dict['proj_first'] is False:
                 kpts_coor_cur = []
-                for agent_id in range(0, l):
+                for agent_id in range(l):
                     tfm = x1_to_x2(lidar_poses[idx+agent_id], lidar_poses[idx])
                     tfm = torch.from_numpy(tfm).to(keypoints_coords[0].device).float()
                     keypoints_coords[idx+agent_id][:, :3] = project_points_by_matrix_torch(keypoints_coords[idx+agent_id][:,:3], tfm)

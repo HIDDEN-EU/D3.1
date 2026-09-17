@@ -1,19 +1,22 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import torch
-from torch import nn
-from efficientnet_pytorch import EfficientNet
-from torchvision.models.resnet import resnet18
-from torchvision.models.resnet import resnet101
 import torch.nn.functional as F
+from efficientnet_pytorch import EfficientNet
+from torch import nn
+from torchvision.models.resnet import resnet18, resnet101
+
+from opencood.models.fuse_modules.fusion_in_one import (
+    AttFusion,
+    DiscoFusion,
+    MaxFusion,
+    V2VNetFusion,
+    V2XViTFusion,
+)
 from opencood.utils.camera_utils import bin_depths
-from opencood.models.sub_modules.torch_transformation_utils import \
-    warp_affine_simple
 from opencood.utils.transformation_utils import normalize_pairwise_tfm
-from opencood.models.fuse_modules.fusion_in_one import \
-    MaxFusion, AttFusion, V2VNetFusion, V2XViTFusion, DiscoFusion
+
 
 class Up(nn.Module):
     def __init__(self, in_channels, out_channels, scale_factor=2):
@@ -39,7 +42,7 @@ class Up(nn.Module):
 
 class CamEncode(nn.Module):  # 提取图像特征进行图像编码
     def __init__(self, D, C, downsample, ddiscr, mode, use_gt_depth=False, depth_supervision=True):
-        super(CamEncode, self).__init__()
+        super().__init__()
         self.D = D  # 42
         self.C = C  # 64
         self.downsample = downsample
@@ -101,11 +104,11 @@ class CamEncode(nn.Module):  # 提取图像特征进行图像编码
                 drop_connect_rate *= float(idx) / len(self.trunk._blocks) # scale drop connect_rate
             x = block(x, drop_connect_rate=drop_connect_rate)
             if prev_x.size(2) > x.size(2):
-                endpoints['reduction_{}'.format(len(endpoints)+1)] = prev_x
+                endpoints[f'reduction_{len(endpoints)+1}'] = prev_x
             prev_x = x
 
         # Head
-        endpoints['reduction_{}'.format(len(endpoints)+1)] = x  # x: 24 x 320 x 4 x 11
+        endpoints[f'reduction_{len(endpoints)+1}'] = x  # x: 24 x 320 x 4 x 11
         x = self.up1(endpoints['reduction_5'], endpoints['reduction_4'])  # 先对endpoints[4]进行上采样，然后将 endpoints[5]和endpoints[4] concat 在一起
         if self.downsample == 8:
             x = self.up2(x, endpoints['reduction_3'])
@@ -140,7 +143,7 @@ class CamEncode(nn.Module):  # 提取图像特征进行图像编码
 
 class CamEncode_Resnet101(nn.Module):  # 提取图像特征进行图像编码
     def __init__(self, D, C, downsample, ddiscr, mode, use_gt_depth=False, depth_supervision=True):
-        super(CamEncode_Resnet101, self).__init__()
+        super().__init__()
         self.D = D  # 42
         self.C = C  # 64
         self.downsample = downsample
@@ -236,7 +239,7 @@ class CamEncode_Resnet101(nn.Module):  # 提取图像特征进行图像编码
 
 class BevEncode(nn.Module):
     def __init__(self, inC, outC):  # inC: 64  outC: not 1 for object detection
-        super(BevEncode, self).__init__()
+        super().__init__()
 
         # 使用resnet的前3个stage作为backbone
         trunk = resnet18(pretrained=False, zero_init_residual=True)
@@ -278,7 +281,7 @@ class BevEncodeSSFusion(nn.Module):
     Multiscale version of ResNet Encoder
     """
     def __init__(self, fusion_args):  # inC: 64  outC: not 1 for object detection
-        super(BevEncodeSSFusion, self).__init__()
+        super().__init__()
         args = fusion_args['args']
         inC = args['in_channels']
         self.discrete_ratio = args['voxel_size'][0]  
@@ -347,7 +350,7 @@ class BevEncodeMSFusion(nn.Module):
     Multiscale version of ResNet Encoder
     """
     def __init__(self, fusion_args):  # inC: 64  outC: not 1 for object detection
-        super(BevEncodeMSFusion, self).__init__()
+        super().__init__()
         args = fusion_args['args']
         inC = args['in_channels']
         self.discrete_ratio = args['voxel_size'][0]  

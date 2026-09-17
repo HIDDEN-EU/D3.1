@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -6,26 +5,33 @@
 # Support multiple fusion strategies.
 
 
+import importlib
+from collections import Counter, OrderedDict
+
 import torch
-import torch.nn as nn
-import numpy as np
-from icecream import ic
-from collections import OrderedDict, Counter
-from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
-from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone 
-from opencood.models.sub_modules.feature_alignnet import AlignNet
+import torchvision
+from torch import nn
+
+from opencood.models.fuse_modules.fusion_in_one import (
+    AttFusion,
+    CoBEVT,
+    DiscoFusion,
+    MaxFusion,
+    V2VNetFusion,
+    V2XViTFusion,
+    Where2commFusion,
+    Who2comFusion,
+)
 from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
 from opencood.models.sub_modules.naive_compress import NaiveCompressor
-from opencood.models.fuse_modules.fusion_in_one import MaxFusion, AttFusion, DiscoFusion, V2VNetFusion, V2XViTFusion, CoBEVT, Where2commFusion, Who2comFusion
+from opencood.utils.model_utils import check_trainable_module
 from opencood.utils.transformation_utils import normalize_pairwise_tfm
-from opencood.utils.model_utils import check_trainable_module, fix_bn, unfix_bn
-import importlib
-import torchvision
+
 
 class HeterModelBaseline(nn.Module):
     def __init__(self, args):
-        super(HeterModelBaseline, self).__init__()
+        super().__init__()
         self.args = args
         modality_name_list = list(args.keys())
         modality_name_list = [x for x in modality_name_list if x.startswith("m") and x[1:].isdigit()] 
@@ -88,9 +94,9 @@ class HeterModelBaseline(nn.Module):
         if args.get("supervise_single", False):
             self.supervise_single = True
             in_head_single = args['in_head_single']
-            setattr(self, f'cls_head_single', nn.Conv2d(in_head_single, args['anchor_number'], kernel_size=1))
-            setattr(self, f'reg_head_single', nn.Conv2d(in_head_single, args['anchor_number'] * 7, kernel_size=1))
-            setattr(self, f'dir_head_single', nn.Conv2d(in_head_single, args['anchor_number'] *  args['dir_args']['num_bins'], kernel_size=1))
+            self.cls_head_single = nn.Conv2d(in_head_single, args['anchor_number'], kernel_size=1)
+            self.reg_head_single = nn.Conv2d(in_head_single, args['anchor_number'] * 7, kernel_size=1)
+            self.dir_head_single = nn.Conv2d(in_head_single, args['anchor_number'] * args['dir_args']['num_bins'], kernel_size=1)
 
 
         if args['fusion_method'] == "max":

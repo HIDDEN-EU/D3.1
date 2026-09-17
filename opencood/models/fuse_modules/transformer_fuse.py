@@ -3,14 +3,11 @@ Implementation of transformer encoder fusion.
 """
 
 import torch
-import torch.nn as nn
+from torch import nn
 
-from opencood.models.sub_modules.torch_transformation_utils import \
-    get_discretized_transformation_matrix, get_transformation_matrix, \
-    warp_affine_simple, get_rotated_roi
-import torch.nn.functional as F
-from icecream import ic
-from matplotlib import pyplot as plt
+from opencood.models.sub_modules.torch_transformation_utils import (
+    warp_affine_simple,
+)
 
 # class MultiheadAttBlock(nn.Module):
 #     def __init__(self, channels, n_head=8, dropout=0):
@@ -34,7 +31,7 @@ from matplotlib import pyplot as plt
 
 class EncodeLayer(nn.Module):
     def __init__(self, channels, n_head=8, dropout=0):
-        super(EncodeLayer, self).__init__()
+        super().__init__()
         self.attn = nn.MultiheadAttention(channels, n_head, dropout)
         self.linear1 = nn.Linear(channels, channels)
         self.linear2 = nn.Linear(channels, channels)
@@ -76,7 +73,7 @@ class EncodeLayer(nn.Module):
 
 class TransformerFusion(nn.Module):
     def __init__(self, args):
-        super(TransformerFusion, self).__init__()
+        super().__init__()
         
         self.channels = args['in_channels']
         self.n_head = args['n_head']

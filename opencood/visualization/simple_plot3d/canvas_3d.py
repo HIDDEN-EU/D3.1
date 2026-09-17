@@ -5,13 +5,13 @@ Simple 3D visualization for 3D points & boxes. Intended as a simple, hackable
 alternative to mayavi for certain point cloud tasks.
 """
 
-import numpy as np
-import cv2
-import copy
-from functools import partial
-import matplotlib
 
-class Canvas_3D(object):
+import cv2
+import matplotlib
+import numpy as np
+
+
+class Canvas_3D:
     def __init__(self,
                  canvas_shape=(500, 1000),
                  camera_center_coords=(-15, 0, 10),
@@ -177,7 +177,7 @@ class Canvas_3D(object):
             colors = (colors(colors_operand)[:, :3] * 255).astype(np.uint8)
         else:
             raise Exception(
-                "colors type {} was not an expected type".format(type(colors)))
+                f"colors type {type(colors)} was not an expected type")
 
         if radius == -1:
             self.canvas[canvas_xy[:, 0], canvas_xy[:, 1], :] = colors
@@ -223,7 +223,7 @@ class Canvas_3D(object):
             colors = colors.astype(np.uint8)
         else:
             raise Exception(
-                "colors type {} was not an expected type".format(type(colors)))
+                f"colors type {type(colors)} was not an expected type")
         
         start_pts_xy, start_pts_valid_mask, start_pts_d = \
             self.get_canvas_coords(start_xyz, True)
@@ -293,7 +293,7 @@ class Canvas_3D(object):
             colors = colors.astype(np.uint8)
         else:
             raise Exception(
-                "colors type {} was not an expected type".format(type(colors)))
+                f"colors type {type(colors)} was not an expected type")
         
         
 

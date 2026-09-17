@@ -2,10 +2,11 @@
 https://github.com/AmnonDrory/BestBuddiesRegistration/blob/main/code/bb_pc/utils/subsampling.py
 """
 
+from copy import deepcopy
+
 import numpy as np
 import open3d as o3d
 import pandas as pd
-from copy import deepcopy
 
 num_features = 3
 

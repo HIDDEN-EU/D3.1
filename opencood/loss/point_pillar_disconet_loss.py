@@ -1,16 +1,15 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
+from torch import nn
+
 from opencood.loss.point_pillar_loss import PointPillarLoss
+
 
 class PointPillarDiscoNetLoss(PointPillarLoss):
     def __init__(self, args):
-        super(PointPillarDiscoNetLoss, self).__init__(args)
+        super().__init__(args)
         self.kd = args['kd']
 
     def forward(self, output_dict, target_dict):

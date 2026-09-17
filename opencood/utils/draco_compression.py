@@ -4,18 +4,21 @@ To use this script, draco [https://github.com/google/draco.git] should be instal
    the funcion save_ply.
 2. Compress and anylize the CPM size using function draco_compression.
 """
-import random, os, re
+import os
+import random
+import re
+import subprocess
+from glob import glob
+
 import numpy as np
 import torch
-from glob import glob
-import subprocess
 
 draco = "/media/hdd/yuan/draco/build_dir/draco_encoder"
 
 
 def save_ply(path, batch_coords, batch_features):
     # path = "/media/hdd/yuan/OpenCOOD/opencood/logs/fpvrcnn_intermediate_fusion/cpms/"
-    dirname = "{:06d}".format(random.randint(0, 999999))
+    dirname = f"{random.randint(0, 999999):06d}"
     os.mkdir(path + dirname)
     for bi, (coords, features) in enumerate(zip(batch_coords[1:],
                                                 batch_features[1:])):

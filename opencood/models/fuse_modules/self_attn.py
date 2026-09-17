@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
 # Author: Hao Xiang <haxiang@g.ucla.edu>, Runsheng Xu <rxx3386@ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
+
 from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
 
 DEBUG=False
@@ -35,7 +35,7 @@ class ScaledDotProductAttention(nn.Module):
     """
 
     def __init__(self, dim):
-        super(ScaledDotProductAttention, self).__init__()
+        super().__init__()
         self.sqrt_dim = np.sqrt(dim)
 
     def forward(self, query, key, value):
@@ -47,7 +47,7 @@ class ScaledDotProductAttention(nn.Module):
 
 class AttFusion(nn.Module):
     def __init__(self, feature_dim):
-        super(AttFusion, self).__init__()
+        super().__init__()
         self.att = ScaledDotProductAttention(feature_dim)
 
     def forward(self, x, record_len, pairwise_t_matrix):

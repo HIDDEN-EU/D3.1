@@ -1,12 +1,13 @@
+import numpy as np
 import torch
 from torch import nn
-import numpy as np
+
 from opencood.loss.ciassd_loss import CiassdLoss, weighted_smooth_l1_loss
-from icecream import ic 
+
 
 class FpvrcnnLoss(nn.Module):
     def __init__(self, args):
-        super(FpvrcnnLoss, self).__init__()
+        super().__init__()
         self.ciassd_loss = CiassdLoss(args['stage1'])
         self.cls = args['stage2']['cls']
         self.reg = args['stage2']['reg']

@@ -1,17 +1,13 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import numpy as np
 import torch
-import torch.nn as nn
+from torch import nn
 
-from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
-from opencood.models.sub_modules.resblock import ResNetModified, Bottleneck, BasicBlock
 from opencood.models.fuse_modules.fusion_in_one import regroup
-from opencood.models.sub_modules.torch_transformation_utils import \
-    warp_affine_simple
-from opencood.visualization.debug_plot import plot_feature
+from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
+from opencood.models.sub_modules.resblock import Bottleneck, ResNetModified
+from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
 
 
 def weighted_fuse(x, score, record_len, affine_matrix, align_corners):

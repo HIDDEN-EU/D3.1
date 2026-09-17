@@ -1,18 +1,22 @@
 import math
+
 import torch
-import torch.nn as nn
+from torch import nn
 
 from opencood.models.sub_modules.base_transformer import *
 from opencood.models.sub_modules.hmsa import *
 from opencood.models.sub_modules.mswin import *
-from opencood.models.sub_modules.torch_transformation_utils import \
-    get_transformation_matrix, warp_affine, get_roi_and_cav_mask, \
-    get_discretized_transformation_matrix
+from opencood.models.sub_modules.torch_transformation_utils import (
+    get_discretized_transformation_matrix,
+    get_roi_and_cav_mask,
+    get_transformation_matrix,
+    warp_affine,
+)
 
 
 class STTF(nn.Module):
     def __init__(self, args):
-        super(STTF, self).__init__()
+        super().__init__()
         self.discrete_ratio = args['voxel_size'][0]
         self.downsample_rate = args['downsample_rate']
 
@@ -40,7 +44,7 @@ class RelTemporalEncoding(nn.Module):
     """
 
     def __init__(self, n_hid, RTE_ratio, max_len=100, dropout=0.2):
-        super(RelTemporalEncoding, self).__init__()
+        super().__init__()
         position = torch.arange(0., max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, n_hid, 2) *
                              -(math.log(10000.0) / n_hid))
@@ -63,7 +67,7 @@ class RelTemporalEncoding(nn.Module):
 
 class RTE(nn.Module):
     def __init__(self, dim, RTE_ratio=2):
-        super(RTE, self).__init__()
+        super().__init__()
         self.RTE_ratio = RTE_ratio
 
         self.emb = RelTemporalEncoding(dim, RTE_ratio=self.RTE_ratio)
@@ -182,7 +186,7 @@ class V2XTEncoder(nn.Module):
 
 class V2XTransformer(nn.Module):
     def __init__(self, args):
-        super(V2XTransformer, self).__init__()
+        super().__init__()
 
         encoder_args = args['encoder']
         self.encoder = V2XTEncoder(encoder_args)

@@ -1,27 +1,31 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
-import torch
-import torch.nn as nn
 import numpy as np
-from opencood.models.sub_modules.lss_submodule import Up, CamEncode, BevEncode, CamEncode_Resnet101
-from opencood.utils.camera_utils import gen_dx_bx, cumsum_trick, QuickCumsum, depth_discretization
+import torch
+from torch import nn
+
+from opencood.models.sub_modules.height_compression import HeightCompression
+from opencood.models.sub_modules.lss_submodule import (
+    CamEncode,
+    CamEncode_Resnet101,
+)
+from opencood.models.sub_modules.mean_vfe import MeanVFE
 from opencood.models.sub_modules.pillar_vfe import PillarVFE
 from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
-from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
-from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
-from opencood.models.sub_modules.downsample_conv import DownsampleConv
-from opencood.models.sub_modules.mean_vfe import MeanVFE
 from opencood.models.sub_modules.sparse_backbone_3d import VoxelBackBone8x
-from opencood.models.sub_modules.height_compression import HeightCompression
-
+from opencood.utils.camera_utils import (
+    QuickCumsum,
+    cumsum_trick,
+    depth_discretization,
+    gen_dx_bx,
+)
 
 
 class PointPillar(nn.Module):
     def __init__(self, args):
-        super(PointPillar, self).__init__()
+        super().__init__()
         grid_size = (np.array(args['lidar_range'][3:6]) - np.array(args['lidar_range'][0:3])) / \
                             np.array(args['voxel_size'])
         grid_size = np.round(grid_size).astype(np.int64)
@@ -51,7 +55,7 @@ class PointPillar(nn.Module):
 
 class SECOND(nn.Module):
     def __init__(self, args):
-        super(SECOND, self).__init__()
+        super().__init__()
         lidar_range = np.array(args['lidar_range'])
         grid_size = np.round((lidar_range[3:6] - lidar_range[:3]) /
                                 np.array(args['voxel_size'])).astype(np.int64)
@@ -82,7 +86,7 @@ class SECOND(nn.Module):
 
 class LiftSplatShoot(nn.Module):
     def __init__(self, args): 
-        super(LiftSplatShoot, self).__init__()
+        super().__init__()
         self.grid_conf = args['grid_conf']   # 网格配置参数
         self.data_aug_conf = args['data_aug_conf']   # 数据增强配置参数
         dx, bx, nx = gen_dx_bx(self.grid_conf['xbound'],

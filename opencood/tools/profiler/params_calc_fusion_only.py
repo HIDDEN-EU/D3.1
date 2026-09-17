@@ -1,16 +1,16 @@
-from fvcore.nn import FlopCountAnalysis
-from fvcore.nn import flop_count_table
-import opencood.hypes_yaml.yaml_utils as yaml_utils
-from opencood.tools import train_utils
 import argparse
-import pickle
-from opencood.utils.common_utils import update_dict
 import importlib
-import time
+import pickle
 import sys
-import torch
+import time
+
 import numpy as np
-from icecream import ic 
+import torch
+
+from opencood.hypes_yaml import yaml_utils
+from opencood.tools import train_utils
+from opencood.utils.common_utils import update_dict
+
 
 def train_parser():
     parser = argparse.ArgumentParser(description="Profiler.")
@@ -95,7 +95,9 @@ def inference_throughput_cuda_event(sub_model, sub_input):
 
     return infer_thro
 
-from typing import Dict, Iterable, Callable
+from collections.abc import Callable, Iterable
+
+
 class InputFeatureExtractor(torch.nn.Module):
     """
     Retrieve the input the forward pass of the given layer(s).
@@ -124,14 +126,14 @@ class InputFeatureExtractor(torch.nn.Module):
             self._features[layer_id] = input
         return fn
 
-    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         with torch.no_grad():
             _ = self.model(x)
         return self._features
     
 class SubModel(torch.nn.Module):
     def __init__(self, model):
-        super(SubModel, self).__init__()
+        super().__init__()
         self.fusion_net = model.fusion_net
         self.cls_head = model.cls_head
         self.dir_head = model.dir_head
@@ -147,7 +149,7 @@ class SubModel(torch.nn.Module):
     
 class PyramidModel(torch.nn.Module):
     def __init__(self, model):
-        super(PyramidModel, self).__init__()
+        super().__init__()
         self.pyramid_backbone = model.pyramid_backbone
         self.shrink_flag = model.shrink_flag
         if self.shrink_flag:
@@ -168,7 +170,7 @@ class PyramidModel(torch.nn.Module):
     
 class HmvitModel(torch.nn.Module):
     def __init__(self, model):
-        super(HmvitModel, self).__init__()
+        super().__init__()
         self.fusion_net = model.fusion_net
         self.decoder = model.decoder
     def forward(self, x, pairwise_t_matrix, mode, record_len, mask):

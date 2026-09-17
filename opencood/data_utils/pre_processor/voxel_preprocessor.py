@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -12,13 +11,12 @@ import sys
 import numpy as np
 import torch
 
-from opencood.data_utils.pre_processor.base_preprocessor import \
-    BasePreprocessor
+from opencood.data_utils.pre_processor.base_preprocessor import BasePreprocessor
 
 
 class VoxelPreprocessor(BasePreprocessor):
     def __init__(self, preprocess_params, train):
-        super(VoxelPreprocessor, self).__init__(preprocess_params, train)
+        super().__init__(preprocess_params, train)
         # TODO: add intermediate lidar range later
         self.lidar_range = self.params['cav_lidar_range']
 
@@ -43,11 +41,11 @@ class VoxelPreprocessor(BasePreprocessor):
         data_dict = {}
 
         # calculate the voxel coordinates
-        voxel_coords = ((pcd_np[:, :3] -
+        voxel_coords = (pcd_np[:, :3] -
                          np.floor(np.array([self.lidar_range[0],
                                             self.lidar_range[1],
                                             self.lidar_range[2]])) / (
-                             self.vw, self.vh, self.vd))).astype(np.int32)
+                             self.vw, self.vh, self.vd)).astype(np.int32)
 
         # convert to  (D, H, W) as the paper
         voxel_coords = voxel_coords[:, [2, 1, 0]]

@@ -1,14 +1,13 @@
 
-from tkinter import Y
-from turtle import left
-from opencood.utils.transformation_utils import x_to_world
-from torch.utils.data import Subset
-from matplotlib import pyplot as plt
+import os
+
 import matplotlib
 import matplotlib.patches as mpatches
-import opencood.visualization.simple_plot3d.canvas_3d as canvas_3d
 import numpy as np
-import os
+from matplotlib import pyplot as plt
+
+from opencood.utils.transformation_utils import x_to_world
+from opencood.visualization.simple_plot3d import canvas_3d
 
 v2x = True
 if v2x:
@@ -31,7 +30,7 @@ def main():
         cav_invert_dict[cav_id] = idx
 
     recs = []
-    for i in range(0,len(cav_ids)):
+    for i in range(len(cav_ids)):
         recs.append(mpatches.Rectangle((0,0),1,1,fc=COLOR[i]))
 
 

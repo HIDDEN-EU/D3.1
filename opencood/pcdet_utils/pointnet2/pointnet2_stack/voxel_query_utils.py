@@ -1,11 +1,13 @@
-import torch
-from torch.autograd import Variable
-from torch.autograd import Function
-import torch.nn as nn
-from typing import List
 
-from opencood.pcdet_utils.pointnet2.pointnet2_stack import pointnet2_stack_cuda as pointnet2
+import torch
+from torch import nn
+from torch.autograd import Function
+
+from opencood.pcdet_utils.pointnet2.pointnet2_stack import (
+    pointnet2_stack_cuda as pointnet2,
+)
 from opencood.pcdet_utils.pointnet2.pointnet2_stack import pointnet2_utils
+
 
 class VoxelQuery(Function):
 

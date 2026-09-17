@@ -12,7 +12,7 @@ Jean-Remy Conti
 """
 
 import torch
-from scipy import special, pi
+from scipy import pi, special
 
 
 def logbessel_I_scipy(nu, z, check = True):
@@ -39,8 +39,7 @@ def logbessel_I_scipy(nu, z, check = True):
 	result = special.ive(nu, z)
 	if check:
 		assert len(result[ result == 0]) == 0, ('Bessel functions take ' +
-												'value 0 for z = {}'.format(
-												z[ result == 0]))
+												f'value 0 for z = {z[ result == 0]}')
 	result = torch.log(result) + z
 	return result
 
@@ -210,11 +209,9 @@ def logbessel_I(nu, z, fast = False, check = True):
 		# If problem with assertion, use a better defined init in 
 		# logbessel_approx
 		assert len(result[ torch.isnan(result) ]) == 0, ('Bessel functions take ' +
-												'NaN value for z = {}'.format(
-		 										z[ torch.isnan(result) ]))
+												f'NaN value for z = {z[ torch.isnan(result) ]}')
 		assert len(result[ torch.isinf(result) ]) == 0, ('Bessel functions take ' +
-		 										'inf value for z = {}'.format(
-		 										z[ torch.isinf(result) ]))
+		 										f'inf value for z = {z[ torch.isinf(result) ]}')
 	return result
 
 
@@ -222,6 +219,7 @@ def logbessel_I(nu, z, fast = False, check = True):
 if __name__ == "__main__":
 
 	import time
+
 	import matplotlib.pyplot as plt
 
 	# ------- Single test ------- #
@@ -276,13 +274,13 @@ if __name__ == "__main__":
 	plt.plot(z, asympt, '--', label='asymptotic', linewidth = linewidth)
 	plt.plot(z, logbessels, '--', label='ours', linewidth = linewidth)
 	plt.xlabel(r'$z$')	
-	plt.title(r'$\log[I(\nu = {}, z)]$'.format(nu))
+	plt.title(rf'$\log[I(\nu = {nu}, z)]$')
 	plt.legend()
 
 	# Plot relative error of approximation
 	plt.figure()
 	plt.plot(z, torch.abs((approx - scipy_adapt)/scipy_adapt), '-', label=None, linewidth = linewidth)
 	plt.xlabel(r'$z$')
-	plt.title(r'Relative error of approximation for $\log[I(\nu = {}, z)]$'.format(nu))
+	plt.title(rf'Relative error of approximation for $\log[I(\nu = {nu}, z)]$')
 
 	plt.show()

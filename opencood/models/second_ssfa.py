@@ -1,20 +1,19 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch.nn as nn
+import numpy as np
+from torch import nn
 
-from opencood.models.sub_modules.mean_vfe import MeanVFE
-from opencood.models.sub_modules.sparse_backbone_3d import VoxelBackBone8x
-from opencood.models.sub_modules.height_compression import HeightCompression
-from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
 from opencood.models.sub_modules.cia_ssd_utils import SSFA, Head
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
-import numpy as np
+from opencood.models.sub_modules.height_compression import HeightCompression
+from opencood.models.sub_modules.mean_vfe import MeanVFE
+from opencood.models.sub_modules.sparse_backbone_3d import VoxelBackBone8x
+
 
 class SecondSSFA(nn.Module):
     def __init__(self, args):
-        super(SecondSSFA, self).__init__()
+        super().__init__()
         lidar_range = np.array(args['lidar_range'])
         grid_size = np.round((lidar_range[3:6] - lidar_range[:3]) /
                              np.array(args['voxel_size'])).astype(np.int64)

@@ -15,21 +15,23 @@ For Intermediate Fusion, we will switch to IntermediateHeterinferFusionDataset
 """
 
 import argparse
+import importlib
 import os
 import time
-from typing import OrderedDict
-import importlib
-from opencood.utils.perf_utils import PerfProfiler
-import torch
-import open3d as o3d
-from torch.utils.data import DataLoader, Subset
+from collections import OrderedDict
+
 import numpy as np
-import opencood.hypes_yaml.yaml_utils as yaml_utils
-from opencood.tools import train_utils, inference_utils
+import torch
+from torch.utils.data import DataLoader, Subset
+
 from opencood.data_utils.datasets import build_dataset
+from opencood.hypes_yaml import yaml_utils
+from opencood.tools import inference_utils, train_utils
 from opencood.utils import eval_utils
-from opencood.visualization import vis_utils, my_vis, simple_vis
 from opencood.utils.common_utils import update_dict
+from opencood.utils.perf_utils import PerfProfiler
+from opencood.visualization import simple_vis
+
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 

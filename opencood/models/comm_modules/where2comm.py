@@ -1,14 +1,14 @@
-# -*- coding: utf-8 -*-
 # Author: Yue Hu <phyllis1sjtu@outlook.com>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
 import numpy as np
+import torch
+from torch import nn
+
 
 class Communication(nn.Module):
     def __init__(self, args):
-        super(Communication, self).__init__()
+        super().__init__()
         
         self.smooth = False
         self.thre = args['thre']

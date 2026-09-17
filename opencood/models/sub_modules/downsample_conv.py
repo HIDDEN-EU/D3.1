@@ -1,7 +1,7 @@
 """
 Class used to downsample features by 3*3 conv
 """
-import torch.nn as nn
+from torch import nn
 
 
 class DoubleConv(nn.Module):
@@ -29,7 +29,7 @@ class DoubleConv(nn.Module):
 
 class DownsampleConv(nn.Module):
     def __init__(self, config):
-        super(DownsampleConv, self).__init__()
+        super().__init__()
         self.layers = nn.ModuleList([])
         input_dim = config['input_dim']
 

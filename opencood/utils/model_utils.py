@@ -1,10 +1,11 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
 from collections import OrderedDict
+
+import torch
+from torch import nn
+
 
 def fix_bn(m):
     classname = m.__class__.__name__

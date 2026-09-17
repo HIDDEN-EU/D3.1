@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Hao Xiang <haxiang@g.ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -9,13 +8,13 @@ Convert lidar to bev
 
 import numpy as np
 import torch
-from opencood.data_utils.pre_processor.base_preprocessor import \
-    BasePreprocessor
+
+from opencood.data_utils.pre_processor.base_preprocessor import BasePreprocessor
 
 
 class BevPreprocessor(BasePreprocessor):
     def __init__(self, preprocess_params, train):
-        super(BevPreprocessor, self).__init__(preprocess_params, train)
+        super().__init__(preprocess_params, train)
         self.lidar_range = self.params['cav_lidar_range']
         self.geometry_param = preprocess_params["geometry_param"]
 
@@ -122,4 +121,4 @@ class BevPreprocessor(BasePreprocessor):
         elif isinstance(batch, dict):
             return self.collate_batch_dict(batch)
         else:
-            raise NotImplemented
+            raise NotImplementedError

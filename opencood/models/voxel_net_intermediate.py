@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
@@ -6,17 +5,17 @@
 """
 VoxelNet for intermediate fusion
 """
-import torch.nn as nn
-import torch.nn.functional as F
-import torch
 import numpy as np
+import torch
+import torch.nn.functional as F
+from torch import nn
 from torch.autograd import Variable
 
-from opencood.models.voxel_net import RPN, CML
-from opencood.models.sub_modules.pillar_vfe import PillarVFE
-from opencood.utils.common_utils import torch_tensor_to_numpy
 from opencood.models.fuse_modules.self_attn import AttFusion
 from opencood.models.sub_modules.auto_encoder import AutoEncoder
+from opencood.models.sub_modules.pillar_vfe import PillarVFE
+from opencood.models.voxel_net import CML, RPN
+from opencood.utils.common_utils import torch_tensor_to_numpy
 
 
 # conv2d + bn + relu
@@ -24,7 +23,7 @@ class Conv2d(nn.Module):
 
     def __init__(self, in_channels, out_channels, k, s, p, activation=True,
                  batch_norm=True, bias=True):
-        super(Conv2d, self).__init__()
+        super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=k,
                               stride=s, padding=p, bias=bias)
         if batch_norm:
@@ -46,7 +45,7 @@ class Conv2d(nn.Module):
 class NaiveFusion(nn.Module):
 
     def __init__(self):
-        super(NaiveFusion, self).__init__()
+        super().__init__()
         self.conv1 = Conv2d(128 * 5, 256, 3, 1, 1,
                             batch_norm=False, bias=False)
         self.conv2 = Conv2d(256, 128, 3, 1, 1)
@@ -60,7 +59,7 @@ class NaiveFusion(nn.Module):
 
 class VoxelNetIntermediate(nn.Module):
     def __init__(self, args):
-        super(VoxelNetIntermediate, self).__init__()
+        super().__init__()
         self.svfe = PillarVFE(args['pillar_vfe'],
                               num_point_features=4,
                               voxel_size=args['voxel_size'],

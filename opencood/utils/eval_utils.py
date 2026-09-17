@@ -1,14 +1,12 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import os
 
 import numpy as np
-import torch
 
-from opencood.utils import common_utils
 from opencood.hypes_yaml import yaml_utils
+from opencood.utils import common_utils
 
 
 def voc_ap(rec, prec):
@@ -126,11 +124,11 @@ def calculate_ap(result_stat, iou):
 
     rec = tp[:]
     for idx, val in enumerate(tp):
-        rec[idx] = float(tp[idx]) / gt_total
+        rec[idx] = float(val) / gt_total
 
     prec = tp[:]
     for idx, val in enumerate(tp):
-        prec[idx] = float(tp[idx]) / (fp[idx] + tp[idx])
+        prec[idx] = float(val) / (fp[idx] + val)
 
     ap, mrec, mprec = voc_ap(rec[:], prec[:])
 

@@ -4,18 +4,16 @@
 import numpy as np
 import torch
 
-from opencood.data_utils.post_processor.voxel_postprocessor \
-    import VoxelPostprocessor
-from opencood.utils import box_utils
-from opencood.utils import common_utils
+from opencood.data_utils.post_processor.voxel_postprocessor import VoxelPostprocessor
+from opencood.utils import box_utils, common_utils
 from opencood.utils.common_utils import limit_period
-from icecream import ic
+
 
 class FpvrcnnPostprocessor(VoxelPostprocessor):
     def __init__(self, anchor_params, train):
-        super(FpvrcnnPostprocessor, self).__init__(anchor_params, train)
+        super().__init__(anchor_params, train)
         # redetect box in stage2
-        self.redet = True if 'redet' in anchor_params and anchor_params['redet'] else False
+        self.redet = True if anchor_params.get('redet') else False
         print("Postprocessor Stage2 ReDetect: ", self.redet)
 
     def post_process(self, data_dict, output_dict, stage1=False):

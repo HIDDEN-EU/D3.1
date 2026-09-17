@@ -1,21 +1,17 @@
 """
 3D Anchor Generator for Voxel
 """
-import math
-import sys
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 
-from opencood.data_utils.post_processor.voxel_postprocessor \
-    import VoxelPostprocessor
+from opencood.data_utils.post_processor.voxel_postprocessor import VoxelPostprocessor
 from opencood.utils import box_utils
 
 
 class CiassdPostprocessor(VoxelPostprocessor):
     def __init__(self, anchor_params, train):
-        super(CiassdPostprocessor, self).__init__(anchor_params, train)
+        super().__init__(anchor_params, train)
         self.train = train
         self.anchor_num = self.params['anchor_args']['num']
 

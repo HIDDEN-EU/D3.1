@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>, OpenPCDet
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
-import torch.nn as nn
-import torch.nn.functional as F
 import torch
+import torch.nn.functional as F
+from torch import nn
 from torch.autograd import Variable
 
 from opencood.models.sub_modules.pillar_vfe import PillarVFE
@@ -17,7 +16,7 @@ class Conv2d(nn.Module):
 
     def __init__(self, in_channels, out_channels, k, s, p, activation=True,
                  batch_norm=True):
-        super(Conv2d, self).__init__()
+        super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=k,
                               stride=s, padding=p)
         if batch_norm:
@@ -40,7 +39,7 @@ class Conv2d(nn.Module):
 class Conv3d(nn.Module):
 
     def __init__(self, in_channels, out_channels, k, s, p, batch_norm=True):
-        super(Conv3d, self).__init__()
+        super().__init__()
         self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=k,
                               stride=s, padding=p)
         if batch_norm:
@@ -60,7 +59,7 @@ class Conv3d(nn.Module):
 class FCN(nn.Module):
 
     def __init__(self, cin, cout):
-        super(FCN, self).__init__()
+        super().__init__()
         self.cout = cout
         self.linear = nn.Linear(cin, cout)
         self.bn = nn.BatchNorm1d(cout)
@@ -77,7 +76,7 @@ class FCN(nn.Module):
 class VFE(nn.Module):
 
     def __init__(self, cin, cout, T):
-        super(VFE, self).__init__()
+        super().__init__()
         assert cout % 2 == 0
         self.units = cout // 2
         self.fcn = FCN(cin, self.units)
@@ -101,7 +100,7 @@ class VFE(nn.Module):
 class SVFE(nn.Module):
 
     def __init__(self, T):
-        super(SVFE, self).__init__()
+        super().__init__()
         self.vfe_1 = VFE(7, 32, T)
         self.vfe_2 = VFE(32, 128, T)
         self.fcn = FCN(128, 128)
@@ -119,7 +118,7 @@ class SVFE(nn.Module):
 # Convolutional Middle Layer
 class CML(nn.Module):
     def __init__(self):
-        super(CML, self).__init__()
+        super().__init__()
         self.conv3d_1 = Conv3d(64, 64, 3, s=(2, 1, 1), p=(1, 1, 1))
         self.conv3d_2 = Conv3d(64, 64, 3, s=(1, 1, 1), p=(0, 1, 1))
         self.conv3d_3 = Conv3d(64, 64, 3, s=(2, 1, 1), p=(1, 1, 1))
@@ -134,7 +133,7 @@ class CML(nn.Module):
 # Region Proposal Network
 class RPN(nn.Module):
     def __init__(self, anchor_num=2):
-        super(RPN, self).__init__()
+        super().__init__()
         self.anchor_num = anchor_num
 
         self.block_1 = [Conv2d(128, 128, 3, 2, 1)]
@@ -176,7 +175,7 @@ class RPN(nn.Module):
 
 class VoxelNet(nn.Module):
     def __init__(self, args):
-        super(VoxelNet, self).__init__()
+        super().__init__()
         self.svfe = PillarVFE(args['pillar_vfe'],
                               num_point_features=4,
                               voxel_size=args['voxel_size'],

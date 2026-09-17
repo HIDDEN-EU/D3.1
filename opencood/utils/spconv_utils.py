@@ -1,10 +1,11 @@
 import spconv
 import torch
-import numpy as np
+from icecream import ic
 from spconv.modules import SparseModule
-from opencood.utils.box_utils import project_points_by_matrix_torch
 from torch_scatter import scatter
-from icecream import ic 
+
+from opencood.utils.box_utils import project_points_by_matrix_torch
+
 
 class RemoveDuplicate(SparseModule):
     """

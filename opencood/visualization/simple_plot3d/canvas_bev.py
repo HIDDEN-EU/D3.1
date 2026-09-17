@@ -4,13 +4,13 @@ Written by Jinhyung Park
 Simple BEV visualization for 3D points & boxes.
 """
 
-import numpy as np
-import cv2
-import copy
-from functools import partial
-import matplotlib
 
-class Canvas_BEV(object):
+import cv2
+import matplotlib
+import numpy as np
+
+
+class Canvas_BEV:
     def __init__(self, 
                  canvas_shape=(1000, 1000),
                  canvas_x_range=(-50, 50),
@@ -158,7 +158,7 @@ class Canvas_BEV(object):
             colors = (colors(colors_operand)[:, :3] * 255).astype(np.uint8)
         else:
             raise Exception(
-                "colors type {} was not an expected type".format(type(colors)))
+                f"colors type {type(colors)} was not an expected type")
 
         if radius == -1:
             self.canvas[canvas_xy[:, 0], canvas_xy[:, 1], :] = colors
@@ -201,7 +201,7 @@ class Canvas_BEV(object):
             colors = colors.astype(np.uint8)
         else:
             raise Exception(
-                "colors type {} was not an expected type".format(type(colors)))
+                f"colors type {type(colors)} was not an expected type")
 
         boxes = np.copy(boxes) # prevent in-place modifications
         
@@ -256,7 +256,7 @@ class Canvas_BEV(object):
 
 
 
-class Canvas_BEV_heading_right(object):
+class Canvas_BEV_heading_right:
     def __init__(self, 
                  canvas_shape=(800, 2800),
                  canvas_x_range=(-140, 140),
@@ -413,7 +413,7 @@ class Canvas_BEV_heading_right(object):
             colors = (colors(colors_operand)[:, :3] * 255).astype(np.uint8)
         else:
             raise Exception(
-                "colors type {} was not an expected type".format(type(colors)))
+                f"colors type {type(colors)} was not an expected type")
 
         # Here the order is different from Canvas_BEV
         if radius == -1:
@@ -457,7 +457,7 @@ class Canvas_BEV_heading_right(object):
             colors = colors.astype(np.uint8)
         else:
             raise Exception(
-                "colors type {} was not an expected type".format(type(colors)))
+                f"colors type {type(colors)} was not an expected type")
 
         boxes = np.copy(boxes) # prevent in-place modifications
         

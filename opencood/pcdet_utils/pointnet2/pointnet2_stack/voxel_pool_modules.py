@@ -1,14 +1,15 @@
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
+
 from opencood.pcdet_utils.pointnet2.pointnet2_stack import voxel_query_utils
-from typing import List
-from icecream import ic
+
 
 class NeighborVoxelSAModuleMSG(nn.Module):
                  
-    def __init__(self, *, query_ranges: List[List[int]], radii: List[float], 
-        nsamples: List[int], mlps: List[List[int]], use_xyz: bool = True, pool_method='max_pool'):
+    def __init__(self, *, query_ranges: list[list[int]], radii: list[float], 
+        nsamples: list[int], mlps: list[list[int]], use_xyz: bool = True, pool_method='max_pool'):
         """
         Args:
             query_ranges: list of int, list of neighbor ranges to group with
@@ -70,7 +71,7 @@ class NeighborVoxelSAModuleMSG(nn.Module):
 
     def forward(self, xyz, xyz_batch_cnt, new_xyz, new_xyz_batch_cnt, \
                                         new_coords, features, voxel2point_indices):
-        """
+        r"""
         :param xyz: (N1 + N2 ..., 3) tensor of the xyz coordinates of the features
         :param xyz_batch_cnt: (batch_size), [N1, N2, ...]
         :param new_xyz: (M1 + M2 ..., 3)

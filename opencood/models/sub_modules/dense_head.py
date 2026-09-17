@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch.nn as nn
-import torch
+from torch import nn
+
 
 class Head(nn.Module):
     def __init__(self, args):
-        super(Head, self).__init__()
+        super().__init__()
         
         self.conv_box = nn.Conv2d(args['num_input'], args['num_pred'], 1)  # 128 -> 14
         self.conv_cls = nn.Conv2d(args['num_input'], args['num_cls'], 1)   # 128 -> 2

@@ -1,8 +1,10 @@
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.autograd import Function, Variable
 
-from opencood.pcdet_utils.pointnet2.pointnet2_stack import pointnet2_stack_cuda as pointnet2
+from opencood.pcdet_utils.pointnet2.pointnet2_stack import (
+    pointnet2_stack_cuda as pointnet2,
+)
 
 
 class BallQuery(Function):

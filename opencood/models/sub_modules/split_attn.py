@@ -1,11 +1,11 @@
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class RadixSoftmax(nn.Module):
     def __init__(self, radix, cardinality):
-        super(RadixSoftmax, self).__init__()
+        super().__init__()
         self.radix = radix
         self.cardinality = cardinality
 
@@ -29,7 +29,7 @@ class RadixSoftmax(nn.Module):
 
 class SplitAttn(nn.Module):
     def __init__(self, input_dim):
-        super(SplitAttn, self).__init__()
+        super().__init__()
         self.input_dim = input_dim
 
         self.fc1 = nn.Linear(input_dim, input_dim, bias=False)

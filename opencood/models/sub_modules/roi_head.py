@@ -1,13 +1,14 @@
 import copy
-from icecream import ic
-import torch.nn as nn
-import torch
+
 import numpy as np
-from opencood.pcdet_utils.pointnet2.pointnet2_stack import \
-    pointnet2_modules as pointnet2_stack_modules
-from opencood.utils import common_utils
+import torch
+from torch import nn
+
 from opencood.pcdet_utils.iou3d_nms.iou3d_nms_utils import boxes_iou3d_gpu
-from opencood.utils import box_utils
+from opencood.pcdet_utils.pointnet2.pointnet2_stack import (
+    pointnet2_modules as pointnet2_stack_modules,
+)
+from opencood.utils import box_utils, common_utils
 
 
 class RoIHead(nn.Module):

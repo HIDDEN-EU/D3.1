@@ -1,24 +1,19 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
-import torch.nn as nn
+from torch import nn
 
-
-import torch.nn.functional as F
-from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
+from opencood.models.fuse_modules.fusion_in_one import DiscoFusion
+from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
+from opencood.models.sub_modules.downsample_conv import DownsampleConv
 from opencood.models.sub_modules.pillar_vfe import PillarVFE
 from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
-from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
-from opencood.data_utils.post_processor import UncertaintyVoxelPostprocessor
-from opencood.models.sub_modules.downsample_conv import DownsampleConv
-from opencood.utils.transformation_utils import normalize_pairwise_tfm, regroup
-from opencood.models.fuse_modules.fusion_in_one import DiscoFusion
+from opencood.utils.transformation_utils import normalize_pairwise_tfm
+
 
 class PointPillarDiscoNet(nn.Module):
     def __init__(self, args):
-        super(PointPillarDiscoNet, self).__init__()
+        super().__init__()
         self.discrete_ratio = args['voxel_size'][0]
         # PIllar VFE
         self.pillar_vfe = PillarVFE(args['pillar_vfe'],

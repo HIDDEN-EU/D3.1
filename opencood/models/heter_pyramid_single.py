@@ -3,22 +3,22 @@
 HEAL: An Extensible Framework for Open Heterogeneous Collaborative Perception 
 """
 
-import torch
-import torch.nn as nn
-import numpy as np
-from icecream import ic
-import torchvision
-from collections import OrderedDict, Counter
-from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone 
-from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
-from opencood.models.sub_modules.feature_alignnet import AlignNet
-from opencood.models.sub_modules.downsample_conv import DownsampleConv
 import importlib
-from opencood.utils.model_utils import check_trainable_module, fix_bn, unfix_bn
+from collections import OrderedDict
+
+import torchvision
+from torch import nn
+
+from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
+from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
+from opencood.models.sub_modules.downsample_conv import DownsampleConv
+from opencood.models.sub_modules.feature_alignnet import AlignNet
+from opencood.utils.model_utils import check_trainable_module, fix_bn
+
 
 class HeterPyramidSingle(nn.Module):
     def __init__(self, args):
-        super(HeterPyramidSingle, self).__init__()
+        super().__init__()
         modality_name_list = list(args.keys())
         modality_name_list = [x for x in modality_name_list if x.startswith("m") and x[1:].isdigit()] 
         self.modality_name_list = modality_name_list

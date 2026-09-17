@@ -1,24 +1,25 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
+import json
 import os
+import random
 from collections import OrderedDict
+
 import cv2
 import h5py
-import torch
 import numpy as np
-from torch.utils.data import Dataset
 from PIL import Image
-import json
-import random
-import opencood.utils.pcd_utils as pcd_utils
+from torch.utils.data import Dataset
+
 from opencood.data_utils.augmentor.data_augmentor import DataAugmentor
+from opencood.data_utils.post_processor import build_postprocessor
+from opencood.data_utils.pre_processor import build_preprocessor
 from opencood.hypes_yaml.yaml_utils import load_yaml
+from opencood.utils import pcd_utils
 from opencood.utils.camera_utils import load_camera_data
 from opencood.utils.transformation_utils import x1_to_x2
-from opencood.data_utils.pre_processor import build_preprocessor
-from opencood.data_utils.post_processor import build_postprocessor
+
 
 class OPV2VBaseDataset(Dataset):
     def __init__(self, params, visualize, train=True):
@@ -298,7 +299,6 @@ class OPV2VBaseDataset(Dataset):
         """
         Abstract method, needs to be define by the children class.
         """
-        pass
 
     @staticmethod
     def extract_timestamps(yaml_files):

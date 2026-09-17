@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 # Author: Runsheng Xu <rxx3386@ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
-import torch
 import numpy as np
-
+import torch
 from einops import rearrange
+
 from opencood.utils.common_utils import torch_tensor_to_numpy
 
 

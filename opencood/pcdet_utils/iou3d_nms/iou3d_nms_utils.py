@@ -3,11 +3,11 @@
 Written by Shaoshuai Shi
 All Rights Reserved 2019-2020.
 """
-import torch
 import numpy as np
+import torch
 
-from opencood.utils.common_utils import check_numpy_to_torch
 from opencood.pcdet_utils.iou3d_nms import iou3d_nms_cuda
+from opencood.utils.common_utils import check_numpy_to_torch
 
 
 def boxes_bev_iou_cpu(boxes_a, boxes_b):

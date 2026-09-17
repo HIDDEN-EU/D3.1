@@ -1,19 +1,33 @@
-import torch
-import torch.nn as nn
 import numpy as np
+import torch
+from torch import nn
 from torchvision import transforms
 
-from opencood.models.sub_modules.pillar_vfe import PillarVFE
-from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
+from opencood.models.fuse_modules.fusion_in_one import (
+    AttFusion,
+    DiscoFusion,
+    MaxFusion,
+    V2VNetFusion,
+    V2XViTFusion,
+)
+from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
 from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
 from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
-from opencood.models.fuse_modules.fusion_in_one import MaxFusion, AttFusion, DiscoFusion, V2VNetFusion, V2XViTFusion
-from opencood.utils.camera_utils import gen_dx_bx, cumsum_trick, QuickCumsum, depth_discretization
-from opencood.models.sub_modules.lss_submodule import Up, CamEncode, BevEncode, CamEncode_Resnet101
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
+from opencood.models.sub_modules.lss_submodule import (
+    BevEncode,
+    CamEncode,
+    CamEncode_Resnet101,
+)
+from opencood.models.sub_modules.pillar_vfe import PillarVFE
+from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
+from opencood.utils.camera_utils import (
+    QuickCumsum,
+    cumsum_trick,
+    depth_discretization,
+    gen_dx_bx,
+)
 from opencood.utils.transformation_utils import normalize_pairwise_tfm
-from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
-
 
 
 class PointPillarBaseline(nn.Module):
@@ -21,7 +35,7 @@ class PointPillarBaseline(nn.Module):
     PointPillar encoder for sensor fusion. Returns the 2D-BEV features
     """
     def __init__(self, args):
-        super(PointPillarBaseline, self).__init__()
+        super().__init__()
         
         grid_size = (np.array(args['lidar_range'][3:6]) - np.array(args['lidar_range'][0:3])) / \
                             np.array(args['voxel_size'])
@@ -94,7 +108,7 @@ class LiftSplatShoot(nn.Module):
     LiftSplatShoot for sensor fusion. Returns 2D-BEV features.
     """
     def __init__(self, args): 
-        super(LiftSplatShoot, self).__init__()
+        super().__init__()
         self.grid_conf = args['grid_conf']   # 网格配置参数
         self.data_aug_conf = args['data_aug_conf']   # 数据增强配置参数
         self.bevout_feature = args['bevout_feature']

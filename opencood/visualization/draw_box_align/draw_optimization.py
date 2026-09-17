@@ -1,13 +1,14 @@
-import json
 import copy
-import numpy as np
-from opencood.models.sub_modules.box_align_v2 import vis_pose_graph, box_alignment_relative_sample_np
-from opencood.utils.pose_utils import generate_noise
-import seaborn as sns
-import matplotlib.pyplot as plt
+import json
 import os
+
+import numpy as np
 from tqdm import tqdm
-from matplotlib import rcParams
+
+from opencood.models.sub_modules.box_align_v2 import (
+    box_alignment_relative_sample_np,
+)
+
 
 def read_json(file_path):
     with open(file_path, 'r') as f:

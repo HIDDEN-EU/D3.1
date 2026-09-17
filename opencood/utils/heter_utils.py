@@ -1,13 +1,14 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 # Agent Selection Module for Heterogeneous Collaboration.
 
-import numpy as np
-import random
-import os
-from collections import OrderedDict
 import json
+import os
+import random
+from collections import OrderedDict
+
+import numpy as np
+
 
 class Adaptor:
     def __init__(self, 

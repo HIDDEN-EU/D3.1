@@ -1,14 +1,15 @@
-import torch
-import torch.nn as nn
 import numpy as np
-from opencood.utils.common_utils import limit_period
+import torch
+from torch import nn
+
 from opencood.data_utils.post_processor.voxel_postprocessor import VoxelPostprocessor
 from opencood.pcdet_utils.iou3d_nms.iou3d_nms_utils import aligned_boxes_iou3d_gpu
-from icecream import ic
+from opencood.utils.common_utils import limit_period
+
 
 class CiassdLoss(nn.Module):
     def __init__(self, args, keyname='stage1_out'):
-        super(CiassdLoss, self).__init__()
+        super().__init__()
         self.pos_cls_weight = args['pos_cls_weight']
         self.encode_rad_error_by_sin = args['encode_rad_error_by_sin']
         self.cls = args['cls']
@@ -68,7 +69,7 @@ class CiassdLoss(nn.Module):
 
         # dir loss
         dir_targets = self.get_direction_target(target_dict['targets'].view(batch_size, -1, self.box_codesize))
-        dir_logits = preds_dict[f"dir_preds"].permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2) # [N, H*W*#anchor, 2]
+        dir_logits = preds_dict["dir_preds"].permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2) # [N, H*W*#anchor, 2]
 
         dir_loss = softmax_cross_entropy_with_logits(dir_logits.view(-1, self.anchor_num), dir_targets.view(-1, self.anchor_num)) 
         dir_loss = dir_loss.flatten() * reg_weights.flatten() # [N, H*W*anchor_num]

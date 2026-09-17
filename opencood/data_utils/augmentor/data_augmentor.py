@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Class for data augmentation
 """
@@ -7,12 +6,10 @@ Class for data augmentation
 
 from functools import partial
 
-import numpy as np
-
 from opencood.data_utils.augmentor import augment_utils
 
 
-class DataAugmentor(object):
+class DataAugmentor:
     """
     Data Augmentor.
 
