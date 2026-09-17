@@ -16,6 +16,7 @@ For Intermediate Fusion, we will switch to IntermediateHeterinferFusionDataset
 
 import argparse
 import importlib
+import json
 import os
 import time
 from collections import OrderedDict
@@ -26,7 +27,7 @@ from torch.utils.data import DataLoader, Subset
 
 from opencood.data_utils.datasets import build_dataset
 from opencood.hypes_yaml import yaml_utils
-from opencood.tools import inference_utils, train_utils
+from opencood.tools import inference_utils, levy_collect, train_utils
 from opencood.utils import eval_utils
 from opencood.utils.common_utils import update_dict
 from opencood.utils.perf_utils import PerfProfiler
@@ -78,6 +79,21 @@ def test_parser():
         help="whether to degrade lidar. {m1:32, m3:16} and {m1:16, m3:16}",
     )
     parser.add_argument("--note", default="", type=str, help="any other thing?")
+    parser.add_argument(
+        "--split",
+        type=str,
+        default="test",
+        choices=["test", "val"],
+        help="evaluate on test_dir or validate_dir. 'val' builds the in-order "
+        "modality assignment for the validation scenarios on the fly",
+    )
+    parser.add_argument(
+        "--save_levy",
+        action="store_true",
+        help="write per-frame and per-box Levy trust-map statistics to "
+        "model_dir/levy_<info>_{frames,boxes}.csv (intermediate fusion with "
+        "fusion_backbone.core_method: levy_pyramid)",
+    )
     parser.add_argument(
         "--measure_perf",
         action="store_true",
@@ -145,9 +161,12 @@ def main():
                 parser_func = func
         hypes = parser_func(hypes)
 
-    hypes["validate_dir"] = hypes["test_dir"]
-    if "OPV2V" in hypes["test_dir"] or "v2xsim" in hypes["test_dir"]:
-        assert "test" in hypes["validate_dir"]
+    if opt.split == "test":
+        hypes["validate_dir"] = hypes["test_dir"]
+        if "OPV2V" in hypes["test_dir"] or "v2xsim" in hypes["test_dir"]:
+            assert "test" in hypes["validate_dir"]
+    else:
+        opt.note += "_val"
 
     # This is used in visualization
     # left hand: OPV2V, V2XSet
@@ -178,6 +197,17 @@ def main():
         model.cuda()
     model.eval()
 
+    levy_fusion = None
+    if opt.save_levy:
+        levy_fusion = levy_collect.get_levy_fusion(model)
+        if opt.fusion_method != "intermediate" or levy_fusion is None:
+            raise ValueError(
+                "--save_levy needs --fusion_method intermediate and a model with "
+                "fusion_backbone.core_method: levy_pyramid"
+            )
+        if not levy_fusion.compute_uncertainty:
+            raise ValueError("--save_levy needs levy.compute_uncertainty: true")
+
     if opt.measure_perf:
         profiler = PerfProfiler(use_cuda=torch.cuda.is_available())
         profiler.hook_model(model)
@@ -192,9 +222,21 @@ def main():
     if opt.fusion_method == "intermediate":
         hypes["fusion"]["core_method"] += "infer"
     hypes["comm_range"] = 180
-    hypes["heter"]["assignment_path"] = hypes["heter"]["assignment_path"].replace(
-        ".json", "_in_order.json"
-    )
+    if opt.split == "test":
+        hypes["heter"]["assignment_path"] = hypes["heter"]["assignment_path"].replace(
+            ".json", "_in_order.json"
+        )
+    else:
+        # The shipped *_in_order.json only lists the test scenarios; validation
+        # scenarios missing from it would silently fall back to all-m1.
+        val_assignment = os.path.join(
+            opt.model_dir,
+            os.path.basename(hypes["heter"]["assignment_path"]).replace(
+                ".json", "_validate_in_order.json"
+            ),
+        )
+        write_in_order_assignment(hypes["validate_dir"], val_assignment)
+        hypes["heter"]["assignment_path"] = val_assignment
     hypes = update_dict(hypes, {"ego_modality": "m1"})
 
     if opt.lidar_degrade:
@@ -246,6 +288,14 @@ def main():
         infer_info = opt.fusion_method + opt.note + f"_use_cav{use_cav}"
         if opt.lidar_degrade:
             infer_info += f"_m1_{lidar_config['m1']}_m3_{lidar_config['m3']}"
+
+        levy_recorder = (
+            levy_collect.LevyRecorder(
+                hypes["postprocess"]["anchor_args"]["cav_lidar_range"]
+            )
+            if levy_fusion is not None
+            else None
+        )
 
         if opt.measure_perf:
             WARMUP_ITERS = 5
@@ -304,6 +354,9 @@ def main():
                         batch_data, model, opencood_dataset, use_cav
                     )
                 elif opt.fusion_method == "intermediate":
+                    if levy_fusion is not None:
+                        # never record a trust map left over from a previous frame
+                        levy_fusion.uncertainty_output = None
                     infer_result = inference_utils.inference_intermediate_fusion(
                         batch_data, model, opencood_dataset
                     )
@@ -347,6 +400,17 @@ def main():
                 eval_utils.caluclate_tp_fp(
                     pred_box_tensor, pred_score, gt_box_tensor, result_stat, 0.7
                 )
+
+                if levy_recorder is not None:
+                    levy_collect.record_frame(
+                        levy_recorder,
+                        levy_fusion,
+                        frame=i,
+                        dataset=opencood_dataset,
+                        use_cav=use_cav,
+                        batch_data=batch_data,
+                        infer_result=infer_result,
+                    )
 
                 if not opt.no_score:
                     infer_result.update({"score_tensor": pred_score})
@@ -427,6 +491,42 @@ def main():
         _, ap50, ap70 = eval_utils.eval_final_results(
             result_stat, opt.model_dir, infer_info
         )
+
+        if levy_recorder is not None:
+            for path in levy_recorder.write(
+                os.path.join(opt.model_dir, f"levy_{infer_info}")
+            ):
+                print(f"Levy statistics saved to {path}")
+
+
+def write_in_order_assignment(root_dir, out_path, modalities=("m1", "m2", "m3", "m4")):
+    """
+    Build the in-order modality assignment for every scenario under ``root_dir``.
+
+    Same rule as the shipped ``*_in_order.json`` (checked against all OPV2V and
+    V2XSet test scenarios): cav ids sorted as the base dataset sorts them, a
+    negative (RSU) id moved last, then m1, m2, m3, m4 assigned cyclically.
+    """
+    assignment = {}
+    for scenario in sorted(os.listdir(root_dir)):
+        scenario_dir = os.path.join(root_dir, scenario)
+        if not os.path.isdir(scenario_dir):
+            continue
+        cav_ids = sorted(
+            x
+            for x in os.listdir(scenario_dir)
+            if os.path.isdir(os.path.join(scenario_dir, x))
+        )
+        if not cav_ids:
+            continue
+        if int(cav_ids[0]) < 0:
+            cav_ids = cav_ids[1:] + [cav_ids[0]]
+        assignment[scenario] = {
+            cav_id: modalities[k % len(modalities)] for k, cav_id in enumerate(cav_ids)
+        }
+    with open(out_path, "w") as f:
+        json.dump(assignment, f, indent=4)
+    print(f"In-order assignment for {len(assignment)} scenarios written to {out_path}")
 
 
 def inference_late_fusion_heter_in_order(batch_data, model, dataset, use_cav):

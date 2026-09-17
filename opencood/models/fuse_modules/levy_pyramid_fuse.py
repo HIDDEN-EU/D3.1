@@ -14,6 +14,9 @@ LOG_ZERO = -1e4
 # Floor for the L2 norm when normalising features for the cosine channel.
 NORM_EPS = 1e-6
 
+# Slack on "warped observation mask == 1" when deciding full coverage of a cell.
+COVERAGE_EPS = 1e-3
+
 
 def poisson_inverse_moment(lam, max_terms=96, asymptotic_threshold=30.0):
     """
@@ -109,6 +112,7 @@ def levy_weighted_fuse(
     aux_disagreement_modes=(),
     stochastic=False,
     agent_logit_fn=None,
+    decode_fn=None,
 ):
     """
     Levy replacement for :func:`opencood.models.fuse_modules.pyramid_fuse.weighted_fuse`.
@@ -162,6 +166,12 @@ def levy_weighted_fuse(
         per-agent additive log-intensity offset (N, 1, H, W). Added to
         log(tau) + gamma * S before normalisation, so the weights stay convex. None
         (default) leaves the operator exactly as without it.
+    decode_fn : callable, optional
+        Linear part of this level's decoder, ``decode_fn(F) -> G`` mapping
+        (N, C, H, W) to (N, C', sH, sW). When given, raw tr Sigma is also taken
+        over the per-agent decoded features G_j with the nearest-upsampled weights,
+        which is exact for a non-overlapping decoder (see
+        :meth:`LevyPyramidFusion._make_level_decoder`). Always channel-summed.
 
     Returns
     -------
@@ -172,10 +182,21 @@ def levy_weighted_fuse(
     disagreement : torch.Tensor
         tr Sigma(s) >= 0, (B, 1, H, W).
     n_valid : torch.Tensor
-        N_valid(s), (B, 1, H, W) int64 -- how many agents actually observe each
+        N_valid(s), (B, 1, H, W) int64 -- how many agents *fully* observe each
         cell. ``n_valid >= 2`` is the overlap mask M_overlap: the only region
         where tr Sigma carries signal, since a single contributing agent gives
         p_j = 1 and hence tr Sigma = 0 identically.
+
+        Stricter than the fusion's own ``score != 0``: bilinear warping blends
+        zero padding into cells on a footprint (or camera crop) edge, which leaves
+        them nonzero but attenuated and so inflates raw tr Sigma there. A cell only
+        counts for an agent when all of its bilinear samples were observed, i.e.
+        the warped observation mask is 1. Fusion weights are unaffected.
+    aux : dict
+        {mode: tr Sigma (B, 1, H, W)} for each of ``aux_disagreement_modes``.
+    decoded_disagreement : torch.Tensor or None
+        Channel-summed raw tr Sigma of the decoded features, (B, 1, sH, sW); None
+        unless ``decode_fn`` is given.
     """
     _, C, H, W = x.shape
     B, L = affine_matrix.shape[:2]
@@ -188,6 +209,7 @@ def levy_weighted_fuse(
     disagreement_list = []
     n_valid_list = []
     aux_lists = {}
+    decoded_list = []
 
     # iterate each batch
     for b in range(B):
@@ -261,6 +283,21 @@ def levy_weighted_fuse(
         for _m in aux_disagreement_modes:
             aux_lists.setdefault(_m, []).append(_disagreement(_m))
 
+        if decode_fn is not None:
+            # Same weighted variance, taken after the decoder. The weights are
+            # constant over each decoder block, so nearest upsampling is exact.
+            decoded = decode_fn(feature_in_ego)
+            weights_up = F.interpolate(weights, size=decoded.shape[-2:], mode="nearest")
+            decoded_mean = torch.sum(decoded * weights_up, dim=0)
+            decoded_second = torch.sum(
+                weights_up * torch.sum(decoded**2, dim=1, keepdim=True), dim=0
+            )
+            decoded_list.append(
+                (
+                    decoded_second - torch.sum(decoded_mean**2, dim=0, keepdim=True)
+                ).clamp(min=0.0)
+            )
+
         if stochastic:
             with torch.no_grad():
                 counts = torch.poisson(torch.exp(log_evidence.clamp(max=60.0))[0])
@@ -273,7 +310,16 @@ def levy_weighted_fuse(
         log_evidence_list.append(log_evidence[0])
         disagreement_list.append(disagreement)
 
-        n_valid_list.append(valid.sum(dim=0))
+        # Warp the binary observation mask (camera crop included) the same way
+        # as the score; anything below 1 mixed in padding or cropped cells.
+        coverage = warp_affine_simple(
+            (split_score[b] != 0).to(scores_in_ego.dtype),
+            t_matrix[i, :, :, :],
+            (H, W),
+            align_corners=align_corners,
+        )
+        covered = valid & (coverage >= 1.0 - COVERAGE_EPS)
+        n_valid_list.append(covered.sum(dim=0))
 
     return (
         torch.stack(out),
@@ -281,6 +327,7 @@ def levy_weighted_fuse(
         torch.stack(disagreement_list),
         torch.stack(n_valid_list),
         {m: torch.stack(v) for m, v in aux_lists.items()},
+        torch.stack(decoded_list) if decoded_list else None,
     )
 
 
@@ -405,6 +452,11 @@ class LevyPyramidFusion(PyramidFusion):
                 "disagreement_mode='cosine' (already channel-count free)."
             )
 
+        # Run the ResNeXt trunk and the single-agent heads without gradients, e.g.
+        # to train only what sits on top of a frozen collaboration base. Off by
+        # default, which matches PyramidFusion.
+        self.trunk_no_grad = bool(levy_cfg.get("trunk_no_grad", False))
+
         self.compute_uncertainty = bool(levy_cfg.get("compute_uncertainty", True))
         self.detach_uncertainty = bool(levy_cfg.get("detach_uncertainty", True))
 
@@ -417,6 +469,19 @@ class LevyPyramidFusion(PyramidFusion):
         total = float(sum(scale_weights))
         self.scale_weights = [float(w) / total for w in scale_weights]
 
+        # How the per-level maps become the level-0 trust map; see _build_trust_map.
+        self.combined_mode = levy_cfg.get("combined_mode", "average")
+        assert self.combined_mode in ("average", "decoded"), (
+            f"unknown levy.combined_mode {self.combined_mode}"
+        )
+        if self.combined_mode == "decoded":
+            self._check_decodable()
+            if self.disagreement_mode == "cosine":
+                print(
+                    "Levy: combined_mode='decoded' is raw-only; the combined "
+                    "disagreement/sigma ignore disagreement_mode='cosine'."
+                )
+
         calibration = levy_cfg.get("calibration", {}) or {}
         # Plain floats, not buffers: the state_dict must stay identical to
         # PyramidFusion's so checkpoints remain interchangeable.
@@ -428,7 +493,8 @@ class LevyPyramidFusion(PyramidFusion):
         print(
             f"Levy pyramid fusion: tau={self.tau}, gamma={gamma}, "
             f"score_mode={self.score_mode}, disagreement={self.disagreement_mode}"
-            f"/{self.disagreement_reduction}, scale_weights={self.scale_weights} "
+            f"/{self.disagreement_reduction}, scale_weights={self.scale_weights}, "
+            f"combined_mode={self.combined_mode}"
         )
 
     @property
@@ -489,7 +555,8 @@ class LevyPyramidFusion(PyramidFusion):
             per-level foreground logits, as in PyramidFusion
         uncertainty : dict, only if ``return_uncertainty``
             'evidence', 'disagreement', 'sigma', 'sigma_calibrated', each
-            [B, 1, H, W] at level-0 resolution, plus 'per_scale'.
+            [B, 1, H, W] at level-0 resolution, plus 'per_scale'. 'evidence' is
+            None under ``combined_mode='decoded'``.
         """
         if stochastic and self.training:
             raise RuntimeError(
@@ -510,8 +577,14 @@ class LevyPyramidFusion(PyramidFusion):
                 # e.g. {m2: [0,0,0,1], m4: [0,1,0,0]}
 
         agent_logit_fns = [None] * self.num_levels
+        decode_fns = [
+            self._make_level_decoder(i)
+            if self.compute_uncertainty and self.combined_mode == "decoded"
+            else None
+            for i in range(self.num_levels)
+        ]
 
-        with torch.set_grad_enabled(torch.is_grad_enabled() and not self.trunk_no_grad):
+        with torch.set_grad_enabled(torch.is_grad_enabled()):
             feature_list = self.get_multiscale_feature(spatial_features)
             occ_map_list = [
                 getattr(self, f"single_head_{i}")(feature_list[i])  # [N, 1, H, W]
@@ -554,23 +627,26 @@ class LevyPyramidFusion(PyramidFusion):
 
                 score = score * cam_crop_mask
 
-            fused, log_evidence, disagreement, n_valid, aux = levy_weighted_fuse(
-                feature_list[i],
-                score,
-                record_len,
-                affine_matrix,
-                self.align_corners,
-                tau=self.tau,
-                gamma=self.gamma,
-                logits=occ_map if self.score_mode == "logit" else None,
-                disagreement_reduction=self.disagreement_reduction,
-                disagreement_mode=self.disagreement_mode,
-                aux_disagreement_modes=self.aux_disagreement_modes,
-                stochastic=stochastic,
-                agent_logit_fn=agent_logit_fns[i],
+            fused, log_evidence, disagreement, n_valid, aux, decoded = (
+                levy_weighted_fuse(
+                    feature_list[i],
+                    score,
+                    record_len,
+                    affine_matrix,
+                    self.align_corners,
+                    tau=self.tau,
+                    gamma=self.gamma,
+                    logits=occ_map if self.score_mode == "logit" else None,
+                    disagreement_reduction=self.disagreement_reduction,
+                    disagreement_mode=self.disagreement_mode,
+                    aux_disagreement_modes=self.aux_disagreement_modes,
+                    stochastic=stochastic,
+                    agent_logit_fn=agent_logit_fns[i],
+                    decode_fn=decode_fns[i],
+                )
             )
             fused_feature_list.append(fused)
-            per_scale.append((log_evidence, disagreement, n_valid, aux))
+            per_scale.append((log_evidence, disagreement, n_valid, aux, decoded))
 
         fused_feature = self.decode_multiscale_feature(fused_feature_list)
 
@@ -582,28 +658,110 @@ class LevyPyramidFusion(PyramidFusion):
             return fused_feature, occ_map_list, self.uncertainty_output
         return fused_feature, occ_map_list
 
+    def _make_level_decoder(self, level):
+        """
+        Linear, pre-ReLU part of one level's decoder: G = BN(ConvT(F)).
+
+        ConvT has kernel == stride and no bias, so each coarse cell only writes its
+        own s x s block and a convex combination of agents passes through it
+        unchanged; BN with running statistics is per-channel affine, which also
+        commutes with a combination whose weights sum to 1. So sum_j p_j G_j is
+        exactly the fused feature HEAL's decoder holds just before its ReLU.
+
+        BN is always applied in inference form, so this diagnostic never updates
+        the running statistics (and is only exact in eval, like BN itself).
+        """
+        convt, bn = self.deblocks[level][0], self.deblocks[level][1]
+
+        def decode(feat):
+            with torch.set_grad_enabled(
+                torch.is_grad_enabled() and not self.detach_uncertainty
+            ):
+                return F.batch_norm(
+                    convt(feat),
+                    bn.running_mean,
+                    bn.running_var,
+                    bn.weight,
+                    bn.bias,
+                    training=False,
+                    eps=bn.eps,
+                )
+
+        return decode
+
+    def _check_decodable(self):
+        """Refuse ``combined_mode='decoded'`` where the exactness argument fails."""
+        if len(self.deblocks) != self.num_levels:
+            raise ValueError(
+                "levy.combined_mode='decoded' needs exactly one deblock per level "
+                f"(got {len(self.deblocks)} for {self.num_levels} levels)"
+            )
+        for level, block in enumerate(self.deblocks):
+            convt = block[0]
+            ok = (
+                isinstance(convt, nn.ConvTranspose2d)
+                and convt.kernel_size == convt.stride
+                and convt.padding == (0, 0)
+                and convt.output_padding == (0, 0)
+                and convt.dilation == (1, 1)
+                and convt.bias is None
+                and isinstance(block[1], nn.BatchNorm2d)
+                and block[1].track_running_stats
+            )
+            if not ok:
+                raise ValueError(
+                    f"levy.combined_mode='decoded': deblock {level} is not a "
+                    "bias-free ConvTranspose2d with kernel == stride followed by "
+                    "BatchNorm2d, so the decoded moments would not be exact"
+                )
+
     def _build_trust_map(self, per_scale):
         """
-        per level, sigma_l = sqrt(tr Sigma_l * phi(Lambda_l));
-        then bilinearly upsample every level to the level-0 BEV grid and take the
-        omega-weighted average.
+        per level, sigma_l = sqrt(tr Sigma_l * phi(Lambda_l)); the levels are then
+        combined on the level-0 BEV grid according to ``combined_mode``:
+
+        'average'
+            nearest-upsample every level and take the omega-weighted average of
+            evidence, disagreement and sigma.
+        'decoded'
+            the levels are concatenated by HEAL's decoder, and the weighted
+            variance of a concatenation is the sum of its blocks' variances; the
+            levels' atoms are independent, so their stochastic variances add too:
+
+                disagreement = sum_l tr Sigma_l(G)
+                sigma        = sqrt( sum_l tr Sigma_l(G) * phi(Lambda_l) )
+
+            with G the pre-ReLU decoded features (raw mode). ``scale_weights`` do
+            not apply, ``disagreement_reduction='mean'`` divides by the total
+            decoded channel count, and ``evidence`` is None: Lambda is defined per
+            level only (see ``per_scale``).
 
         Each level also publishes ``n_valid`` and the binary overlap mask
         M_overlap = 1{N_valid >= 2}. Every grid-level metric must be reduced over
         M_overlap only: outside it at most one agent contributes, so tr Sigma is
         algebraically zero rather than merely small, and an unmasked mean reports
         the collaborator's footprint area instead of its disagreement.
+
+        The fused ``n_valid`` is the per-cell minimum over every contributing level
+        (nonzero omega under 'average', all levels under 'decoded'),
+        nearest-upsampled, and the fused ``overlap_mask`` is derived from it --
+        i.e. the AND of those levels' overlap masks.
         """
         base_size = per_scale[0][0].shape[-2:]
+        decoded_mode = self.combined_mode == "decoded"
 
         sigma_acc = None
         evidence_acc = None
         disagreement_acc = None
+        decoded_acc = None
+        decoded_var_acc = None
+        decoded_channels = 0
         scale_maps = []
-        base_overlap = None
         base_n_valid = None
 
-        for i, (log_evidence, disagreement, n_valid, aux) in enumerate(per_scale):
+        for i, (log_evidence, disagreement, n_valid, aux, decoded) in enumerate(
+            per_scale
+        ):
             if self.detach_uncertainty:
                 log_evidence = log_evidence.detach()
                 disagreement = disagreement.detach()
@@ -628,21 +786,49 @@ class LevyPyramidFusion(PyramidFusion):
                 scale_maps[-1][f"disagreement_{_m}"] = _d
                 scale_maps[-1][f"sigma_{_m}"] = torch.sqrt(F.relu(_d * phi))
 
-            if i == 0:
-                base_overlap = overlap_mask
-                base_n_valid = n_valid
-            else:
-                evidence = F.interpolate(
-                    evidence, size=base_size, mode="bilinear", align_corners=False
-                )
+            if decoded is not None:
+                decoded = decoded.detach() if self.detach_uncertainty else decoded
+                if decoded.shape[-2:] != base_size:
+                    raise ValueError(
+                        f"level {i} decodes to {tuple(decoded.shape[-2:])}, "
+                        f"expected the level-0 grid {tuple(base_size)}"
+                    )
+                # Channel-summed, on the level-0 grid (not this level's own).
+                scale_maps[-1]["disagreement_decoded"] = decoded
+
+            if i > 0:
+                evidence = F.interpolate(evidence, size=base_size, mode="nearest")
                 disagreement = F.interpolate(
-                    disagreement, size=base_size, mode="bilinear", align_corners=False
+                    disagreement, size=base_size, mode="nearest"
                 )
-                sigma = F.interpolate(
-                    sigma, size=base_size, mode="bilinear", align_corners=False
-                )
+                sigma = F.interpolate(sigma, size=base_size, mode="nearest")
+                phi = F.interpolate(phi, size=base_size, mode="nearest")
+                n_valid = F.interpolate(
+                    n_valid.float(), size=base_size, mode="nearest"
+                ).to(n_valid.dtype)
 
             w = self.scale_weights[i]
+            # A fused cell is only as observed as its least-observed contributing
+            # level; otherwise a level with a single agent there adds tr Sigma = 0
+            # and silently dilutes the combination inside the mask.
+            if decoded_mode or w > 0:
+                base_n_valid = (
+                    n_valid
+                    if base_n_valid is None
+                    else torch.minimum(base_n_valid, n_valid)
+                )
+
+            if decoded_mode:
+                decoded_acc = decoded if decoded_acc is None else decoded_acc + decoded
+                decoded_var = decoded * phi
+                decoded_var_acc = (
+                    decoded_var
+                    if decoded_var_acc is None
+                    else decoded_var_acc + decoded_var
+                )
+                decoded_channels += self.deblocks[i][0].out_channels
+                continue
+
             sigma_acc = w * sigma if sigma_acc is None else sigma_acc + w * sigma
             evidence_acc = (
                 w * evidence if evidence_acc is None else evidence_acc + w * evidence
@@ -653,12 +839,18 @@ class LevyPyramidFusion(PyramidFusion):
                 else disagreement_acc + w * disagreement
             )
 
+        if decoded_mode:
+            norm = decoded_channels if self.disagreement_reduction == "mean" else 1
+            disagreement_acc = decoded_acc / norm
+            sigma_acc = torch.sqrt(F.relu(decoded_var_acc / norm))
+            evidence_acc = None
+
         return {
             "evidence": evidence_acc,
             "disagreement": disagreement_acc,
             "sigma": sigma_acc,
             "sigma_calibrated": self.calib_a * sigma_acc + self.calib_b,
             "n_valid": base_n_valid,
-            "overlap_mask": base_overlap,
+            "overlap_mask": base_n_valid >= 2,
             "per_scale": scale_maps,
         }
