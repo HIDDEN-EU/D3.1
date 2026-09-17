@@ -11,11 +11,8 @@ from opencood.models.pixor import BackBone, Bottleneck, Header
 
 
 class BackBoneIntermediate(BackBone):
-
     def __init__(self, block, num_block, geom, use_bn=True):
-        super().__init__(block,
-                                                   num_block,
-                                                   geom, use_bn)
+        super().__init__(block, num_block, geom, use_bn)
 
         self.fusion_net3 = AttFusion(192)
         self.fusion_net4 = AttFusion(256)
@@ -25,7 +22,7 @@ class BackBoneIntermediate(BackBone):
         # Here c3, c4, c5 includes all cav
         c3, c4, c5 = self.encode(x)
 
-        # Here c3, c4, c5 only include ego 
+        # Here c3, c4, c5 only include ego
         c5 = self.fusion_net5(c5, record_len)
         c4 = self.fusion_net4(c4, record_len)
         c3 = self.fusion_net3(c3, record_len)
@@ -58,15 +55,13 @@ class PIXORIntermediate(nn.Module):
         super().__init__()
         geom = args["geometry_param"]
         use_bn = args["use_bn"]
-        self.backbone = BackBoneIntermediate(Bottleneck, [3, 6, 6, 3],
-                                             geom,
-                                             use_bn)
+        self.backbone = BackBoneIntermediate(Bottleneck, [3, 6, 6, 3], geom, use_bn)
         self.header = Header(use_bn)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
@@ -78,17 +73,14 @@ class PIXORIntermediate(nn.Module):
         self.header.reghead.bias.data.fill_(0)
 
     def forward(self, data_dict):
-        bev_input = data_dict['processed_lidar']["bev_input"]
-        record_len = data_dict['record_len']
+        bev_input = data_dict["processed_lidar"]["bev_input"]
+        record_len = data_dict["record_len"]
 
         features = self.backbone(bev_input, record_len)
         # cls -- (N, 1, W/4, L/4)
         # reg -- (N, 6, W/4, L/4)
         cls, reg = self.header(features)
 
-        output_dict = {
-            "cls": cls,
-            "reg": reg
-        }
+        output_dict = {"cls": cls, "reg": reg}
 
         return output_dict

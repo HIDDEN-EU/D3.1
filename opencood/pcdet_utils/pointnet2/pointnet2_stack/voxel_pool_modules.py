@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -7,9 +6,16 @@ from opencood.pcdet_utils.pointnet2.pointnet2_stack import voxel_query_utils
 
 
 class NeighborVoxelSAModuleMSG(nn.Module):
-                 
-    def __init__(self, *, query_ranges: list[list[int]], radii: list[float], 
-        nsamples: list[int], mlps: list[list[int]], use_xyz: bool = True, pool_method='max_pool'):
+    def __init__(
+        self,
+        *,
+        query_ranges: list[list[int]],
+        radii: list[float],
+        nsamples: list[int],
+        mlps: list[list[int]],
+        use_xyz: bool = True,
+        pool_method="max_pool",
+    ):
         """
         Args:
             query_ranges: list of int, list of neighbor ranges to group with
@@ -21,7 +27,7 @@ class NeighborVoxelSAModuleMSG(nn.Module):
         super().__init__()
 
         assert len(query_ranges) == len(nsamples) == len(mlps)
-        
+
         self.groupers = nn.ModuleList()
         self.mlps_in = nn.ModuleList()
         self.mlps_pos = nn.ModuleList()
@@ -30,23 +36,25 @@ class NeighborVoxelSAModuleMSG(nn.Module):
             max_range = query_ranges[i]
             nsample = nsamples[i]
             radius = radii[i]
-            self.groupers.append(voxel_query_utils.VoxelQueryAndGrouping(max_range, radius, nsample))
+            self.groupers.append(
+                voxel_query_utils.VoxelQueryAndGrouping(max_range, radius, nsample)
+            )
             mlp_spec = mlps[i]
 
             cur_mlp_in = nn.Sequential(
                 nn.Conv1d(mlp_spec[0], mlp_spec[1], kernel_size=1, bias=False),
-                nn.BatchNorm1d(mlp_spec[1])
+                nn.BatchNorm1d(mlp_spec[1]),
             )
-            
+
             cur_mlp_pos = nn.Sequential(
                 nn.Conv2d(3, mlp_spec[1], kernel_size=1, bias=False),
-                nn.BatchNorm2d(mlp_spec[1])
+                nn.BatchNorm2d(mlp_spec[1]),
             )
 
             cur_mlp_out = nn.Sequential(
                 nn.Conv1d(mlp_spec[1], mlp_spec[2], kernel_size=1, bias=False),
                 nn.BatchNorm1d(mlp_spec[2]),
-                nn.ReLU()
+                nn.ReLU(),
             )
 
             self.mlps_in.append(cur_mlp_in)
@@ -58,7 +66,6 @@ class NeighborVoxelSAModuleMSG(nn.Module):
 
         self.init_weights()
 
-
     def init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv1d):
@@ -69,8 +76,16 @@ class NeighborVoxelSAModuleMSG(nn.Module):
                 nn.init.constant_(m.weight, 1.0)
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, xyz, xyz_batch_cnt, new_xyz, new_xyz_batch_cnt, \
-                                        new_coords, features, voxel2point_indices):
+    def forward(
+        self,
+        xyz,
+        xyz_batch_cnt,
+        new_xyz,
+        new_xyz_batch_cnt,
+        new_coords,
+        features,
+        voxel2point_indices,
+    ):
         r"""
         :param xyz: (N1 + N2 ..., 3) tensor of the xyz coordinates of the features
         :param xyz_batch_cnt: (batch_size), [N1, N2, ...]
@@ -96,7 +111,13 @@ class NeighborVoxelSAModuleMSG(nn.Module):
             # grouped_features: (M1+M2, C, nsample)
             # grouped_xyz: (M1+M2, 3, nsample)
             grouped_features, grouped_xyz, empty_ball_mask = self.groupers[k](
-                new_coords, xyz, xyz_batch_cnt, new_xyz, new_xyz_batch_cnt, features_in, voxel2point_indices
+                new_coords,
+                xyz,
+                xyz_batch_cnt,
+                new_xyz,
+                new_xyz_batch_cnt,
+                features_in,
+                voxel2point_indices,
             )
             grouped_features[empty_ball_mask] = 0
 
@@ -111,22 +132,22 @@ class NeighborVoxelSAModuleMSG(nn.Module):
             position_features = self.mlps_pos[k](grouped_xyz)
             new_features = grouped_features + position_features
             new_features = self.relu(new_features)
-            
-            if self.pool_method == 'max_pool':
+
+            if self.pool_method == "max_pool":
                 new_features = F.max_pool2d(
                     new_features, kernel_size=[1, new_features.size(3)]
                 ).squeeze(dim=-1)  # (1, C, M1 + M2 ...)
-            elif self.pool_method == 'avg_pool':
+            elif self.pool_method == "avg_pool":
                 new_features = F.avg_pool2d(
                     new_features, kernel_size=[1, new_features.size(3)]
                 ).squeeze(dim=-1)  # (1, C, M1 + M2 ...)
             else:
                 raise NotImplementedError
-            
+
             new_features = self.mlps_out[k](new_features)
             new_features = new_features.squeeze(dim=0).permute(1, 0)  # (M1 + M2 ..., C)
             new_features_list.append(new_features)
-        
+
         # (M1 + M2 ..., C)
         new_features = torch.cat(new_features_list, dim=1)
         return new_features

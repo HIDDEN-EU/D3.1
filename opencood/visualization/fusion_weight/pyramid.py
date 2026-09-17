@@ -11,7 +11,7 @@ def kernel_cosine_similarity(weight1, weight2):
     """
     weight: [C_out, C_int, kernel_H, kernel_W]
     """
-    
+
     cos = nn.CosineSimilarity(dim=1, eps=1e-6)
     result = cos(weight1, weight2)
     return torch.mean(result)
@@ -37,13 +37,15 @@ if __name__ == "__main__":
         "dir_head.weight",
     ]
 
-    state_dict_list = [torch.load(get_model_path_from_dir(model), map_location='cpu') for model in models]
+    state_dict_list = [
+        torch.load(get_model_path_from_dir(model), map_location="cpu")
+        for model in models
+    ]
     for param_name in param_names:
         label_dict = {
             i: model.split("/")[-1].split("_base")[0]
             for (i, model) in enumerate(models)
         }
-        
 
         M = len(models)
         labels = [label_dict[idx] for idx in range(M)]

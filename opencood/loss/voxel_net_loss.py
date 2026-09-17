@@ -2,7 +2,6 @@
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
-
 import torch
 from torch import nn
 
@@ -11,9 +10,9 @@ class VoxelNetLoss(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.smoothl1loss = nn.SmoothL1Loss(size_average=False)
-        self.alpha = args['alpha']
-        self.beta = args['beta']
-        self.reg_coe = args['reg']
+        self.alpha = args["alpha"]
+        self.beta = args["beta"]
+        self.reg_coe = args["reg"]
         self.loss_dict = {}
 
     def forward(self, output_dict, target_dict):
@@ -23,20 +22,20 @@ class VoxelNetLoss(nn.Module):
         output_dict : dict
         target_dict : dict
         """
-        rm = output_dict['rm']
-        psm = output_dict['psm']
+        rm = output_dict["rm"]
+        psm = output_dict["psm"]
 
-        pos_equal_one = target_dict['pos_equal_one']
-        neg_equal_one = target_dict['neg_equal_one']
-        targets = target_dict['targets']
+        pos_equal_one = target_dict["pos_equal_one"]
+        neg_equal_one = target_dict["neg_equal_one"]
+        targets = target_dict["targets"]
 
         p_pos = torch.sigmoid(psm.permute(0, 2, 3, 1))
         rm = rm.permute(0, 2, 3, 1).contiguous()
         rm = rm.view(rm.size(0), rm.size(1), rm.size(2), -1, 7)
-        targets = targets.view(targets.size(0), targets.size(1),
-                               targets.size(2), -1, 7)
-        pos_equal_one_for_reg = pos_equal_one.unsqueeze(
-            pos_equal_one.dim()).expand(-1, -1, -1, -1, 7)
+        targets = targets.view(targets.size(0), targets.size(1), targets.size(2), -1, 7)
+        pos_equal_one_for_reg = pos_equal_one.unsqueeze(pos_equal_one.dim()).expand(
+            -1, -1, -1, -1, 7
+        )
 
         rm_pos = rm * pos_equal_one_for_reg
         targets_pos = targets * pos_equal_one_for_reg
@@ -53,13 +52,13 @@ class VoxelNetLoss(nn.Module):
 
         total_loss = self.reg_coe * reg_loss + conf_loss
 
-        self.loss_dict.update({'total_loss': total_loss,
-                               'reg_loss': reg_loss,
-                               'conf_loss': conf_loss})
+        self.loss_dict.update(
+            {"total_loss": total_loss, "reg_loss": reg_loss, "conf_loss": conf_loss}
+        )
 
         return total_loss
 
-    def logging(self, epoch, batch_id, batch_len, writer = None):
+    def logging(self, epoch, batch_id, batch_len, writer=None):
         """
         Print out  the loss function for current iteration.
 
@@ -74,17 +73,27 @@ class VoxelNetLoss(nn.Module):
         writer : SummaryWriter
             Used to visualize on tensorboard
         """
-        total_loss = self.loss_dict['total_loss']
-        reg_loss = self.loss_dict['reg_loss']
-        conf_loss = self.loss_dict['conf_loss']
+        total_loss = self.loss_dict["total_loss"]
+        reg_loss = self.loss_dict["reg_loss"]
+        conf_loss = self.loss_dict["conf_loss"]
 
-        print("[epoch %d][%d/%d], || Loss: %.4f || Conf Loss: %.4f"
-              " || Loc Loss: %.4f" % (
-                  epoch, batch_id + 1, batch_len,
-                  total_loss.item(), conf_loss.item(), reg_loss.item()))
+        print(
+            "[epoch %d][%d/%d], || Loss: %.4f || Conf Loss: %.4f"
+            " || Loc Loss: %.4f"
+            % (
+                epoch,
+                batch_id + 1,
+                batch_len,
+                total_loss.item(),
+                conf_loss.item(),
+                reg_loss.item(),
+            )
+        )
 
         if not writer is None:
-            writer.add_scalar('Regression_loss', reg_loss.item(),
-                            epoch*batch_len + batch_id)
-            writer.add_scalar('Confidence_loss', conf_loss.item(),
-                            epoch*batch_len + batch_id)
+            writer.add_scalar(
+                "Regression_loss", reg_loss.item(), epoch * batch_len + batch_id
+            )
+            writer.add_scalar(
+                "Confidence_loss", conf_loss.item(), epoch * batch_len + batch_id
+            )

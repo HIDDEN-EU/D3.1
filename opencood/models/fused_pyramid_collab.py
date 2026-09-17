@@ -44,48 +44,72 @@ class FusedPyramidCollab(nn.Module):
         ]
         self.modality_name_list = modality_name_list
 
-        self.cav_range = args['lidar_range']
+        self.cav_range = args["lidar_range"]
 
         for modality_name in self.modality_name_list:
             model_setting = args[modality_name]
-            assert model_setting['sensor_type'] == 'lidar_camera', \
+            assert model_setting["sensor_type"] == "lidar_camera", (
                 f"FusedPyramidCollab requires sensor_type='lidar_camera', got {model_setting['sensor_type']}"
+            )
 
             # Lidar encoder (PointPillar)
-            setattr(self, f"encoder_lidar_{modality_name}",
-                    PointPillar(model_setting['encoder_lidar_args']))
+            setattr(
+                self,
+                f"encoder_lidar_{modality_name}",
+                PointPillar(model_setting["encoder_lidar_args"]),
+            )
 
             # Camera encoder (LiftSplatShoot)
-            setattr(self, f"encoder_camera_{modality_name}",
-                    LiftSplatShoot(model_setting['encoder_camera_args']))
+            setattr(
+                self,
+                f"encoder_camera_{modality_name}",
+                LiftSplatShoot(model_setting["encoder_camera_args"]),
+            )
 
-            if model_setting['encoder_camera_args'].get('depth_supervision', False):
+            if model_setting["encoder_camera_args"].get("depth_supervision", False):
                 setattr(self, f"depth_supervision_{modality_name}", True)
             else:
                 setattr(self, f"depth_supervision_{modality_name}", False)
 
             # 1×1 conv to fuse concatenated lidar+camera BEV channels
-            fusion_args = model_setting['fusion_args']
-            setattr(self, f"fusion_conv_{modality_name}",
-                    nn.Sequential(
-                        nn.Conv2d(fusion_args['in_channels'], fusion_args['out_channels'],
-                                  kernel_size=1, bias=False),
-                        nn.BatchNorm2d(fusion_args['out_channels']),
-                        nn.ReLU(inplace=True),
-                    ))
+            fusion_args = model_setting["fusion_args"]
+            setattr(
+                self,
+                f"fusion_conv_{modality_name}",
+                nn.Sequential(
+                    nn.Conv2d(
+                        fusion_args["in_channels"],
+                        fusion_args["out_channels"],
+                        kernel_size=1,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(fusion_args["out_channels"]),
+                    nn.ReLU(inplace=True),
+                ),
+            )
 
             # BEV backbone
-            setattr(self, f"backbone_{modality_name}",
-                    ResNetBEVBackbone(model_setting['backbone_args']))
+            setattr(
+                self,
+                f"backbone_{modality_name}",
+                ResNetBEVBackbone(model_setting["backbone_args"]),
+            )
 
             # Feature aligner
-            setattr(self, f"aligner_{modality_name}",
-                    AlignNet(model_setting['aligner_args']))
+            setattr(
+                self,
+                f"aligner_{modality_name}",
+                AlignNet(model_setting["aligner_args"]),
+            )
 
             # Camera crop ratios (to match camera BEV spatial extent to lidar range)
-            camera_mask_args = model_setting['camera_mask_args']
-            crop_ratio_W = self.cav_range[3] / camera_mask_args['grid_conf']['xbound'][1]
-            crop_ratio_H = self.cav_range[4] / camera_mask_args['grid_conf']['ybound'][1]
+            camera_mask_args = model_setting["camera_mask_args"]
+            crop_ratio_W = (
+                self.cav_range[3] / camera_mask_args["grid_conf"]["xbound"][1]
+            )
+            crop_ratio_H = (
+                self.cav_range[4] / camera_mask_args["grid_conf"]["ybound"][1]
+            )
             setattr(self, f"crop_ratio_W_{modality_name}", crop_ratio_W)
             setattr(self, f"crop_ratio_H_{modality_name}", crop_ratio_H)
 
@@ -95,30 +119,32 @@ class FusedPyramidCollab(nn.Module):
         self.fake_voxel_size = 1
 
         # Inter-agent multi-scale collaborative fusion
-        self.pyramid_backbone = PyramidFusion(args['fusion_backbone'])
+        self.pyramid_backbone = PyramidFusion(args["fusion_backbone"])
 
         # Optional shrink header
         self.shrink_flag = False
-        if 'shrink_header' in args:
+        if "shrink_header" in args:
             self.shrink_flag = True
-            self.shrink_conv = DownsampleConv(args['shrink_header'])
+            self.shrink_conv = DownsampleConv(args["shrink_header"])
 
         # Detection heads
-        self.cls_head = nn.Conv2d(args['in_head'], args['anchor_number'], kernel_size=1)
-        self.reg_head = nn.Conv2d(args['in_head'], 7 * args['anchor_number'], kernel_size=1)
+        self.cls_head = nn.Conv2d(args["in_head"], args["anchor_number"], kernel_size=1)
+        self.reg_head = nn.Conv2d(
+            args["in_head"], 7 * args["anchor_number"], kernel_size=1
+        )
         self.dir_head = nn.Conv2d(
-            args['in_head'],
-            args['dir_args']['num_bins'] * args['anchor_number'],
+            args["in_head"],
+            args["dir_args"]["num_bins"] * args["anchor_number"],
             kernel_size=1,
         )
 
         # Optional feature compressor
         self.compress = False
-        if 'compressor' in args:
+        if "compressor" in args:
             self.compress = True
             self.compressor = NaiveCompressor(
-                args['compressor']['input_dim'],
-                args['compressor']['compress_ratio'],
+                args["compressor"]["input_dim"],
+                args["compressor"]["compress_ratio"],
             )
 
         # ------------------------------------------------------------------
@@ -134,14 +160,16 @@ class FusedPyramidCollab(nn.Module):
         #   freeze_lidar_encoder -> encoder_lidar_{m}, backbone_{m}
         # ------------------------------------------------------------------
         self.fix_modules = []
-        if args.get('freeze_collab_base', False):
-            self.fix_modules += ['pyramid_backbone', 'cls_head', 'reg_head', 'dir_head']
+        if args.get("freeze_collab_base", False):
+            self.fix_modules += ["pyramid_backbone", "cls_head", "reg_head", "dir_head"]
             if self.shrink_flag:
-                self.fix_modules.append('shrink_conv')
-        if args.get('freeze_lidar_encoder', False):
+                self.fix_modules.append("shrink_conv")
+        if args.get("freeze_lidar_encoder", False):
             for modality_name in self.modality_name_list:
-                self.fix_modules += [f'encoder_lidar_{modality_name}',
-                                     f'backbone_{modality_name}']
+                self.fix_modules += [
+                    f"encoder_lidar_{modality_name}",
+                    f"backbone_{modality_name}",
+                ]
 
         self.model_train_init()
         check_trainable_module(self)
@@ -170,19 +198,19 @@ class FusedPyramidCollab(nn.Module):
             data_dict['inputs_{modality_name}']['lidar']   – lidar voxel batch
             data_dict['inputs_{modality_name}']['camera']  – camera image batch
         """
-        inputs = data_dict[f'inputs_{modality_name}']
+        inputs = data_dict[f"inputs_{modality_name}"]
 
         # --- Lidar BEV ---
         encoder_lidar = getattr(self, f"encoder_lidar_{modality_name}")
         # PointPillar expects data_dict[f'inputs_{modality_name}'] = voxel dict.
         # We pass a proxy dict that maps the key it looks for.
-        lidar_proxy = {f'inputs_{modality_name}': inputs['lidar']}
+        lidar_proxy = {f"inputs_{modality_name}": inputs["lidar"]}
         lidar_bev = encoder_lidar(lidar_proxy, modality_name)  # [N, C_l, H, W]
 
         # --- Camera BEV ---
         encoder_camera = getattr(self, f"encoder_camera_{modality_name}")
-        cam_proxy = {f'inputs_{modality_name}': inputs['camera']}
-        cam_bev = encoder_camera(cam_proxy, modality_name)     # [N, C_c, H', W']
+        cam_proxy = {f"inputs_{modality_name}": inputs["camera"]}
+        cam_bev = encoder_camera(cam_proxy, modality_name)  # [N, C_c, H', W']
 
         if getattr(self, f"depth_supervision_{modality_name}"):
             # store depth items for loss computation
@@ -196,21 +224,21 @@ class FusedPyramidCollab(nn.Module):
         cam_bev = crop_fn(cam_bev)
 
         # --- Concat + 1×1 conv ---
-        fused = torch.cat([lidar_bev, cam_bev], dim=1)         # [N, C_l+C_c, H, W]
+        fused = torch.cat([lidar_bev, cam_bev], dim=1)  # [N, C_l+C_c, H, W]
         fusion_conv = getattr(self, f"fusion_conv_{modality_name}")
-        fused = fusion_conv(fused)                              # [N, C_out, H, W]
+        fused = fusion_conv(fused)  # [N, C_out, H, W]
 
         return fused
 
     # ------------------------------------------------------------------
     def forward(self, data_dict):
-        output_dict = {'pyramid': 'collab'}
+        output_dict = {"pyramid": "collab"}
 
-        agent_modality_list = data_dict['agent_modality_list']
+        agent_modality_list = data_dict["agent_modality_list"]
         affine_matrix = normalize_pairwise_tfm(
-            data_dict['pairwise_t_matrix'], self.H, self.W, self.fake_voxel_size
+            data_dict["pairwise_t_matrix"], self.H, self.W, self.fake_voxel_size
         )
-        record_len = data_dict['record_len']
+        record_len = data_dict["record_len"]
 
         modality_count_dict = Counter(agent_modality_list)
         modality_feature_dict = {}
@@ -224,7 +252,7 @@ class FusedPyramidCollab(nn.Module):
 
             # BEV backbone
             backbone = getattr(self, f"backbone_{modality_name}")
-            fused_bev = backbone({'spatial_features': fused_bev})['spatial_features_2d']
+            fused_bev = backbone({"spatial_features": fused_bev})["spatial_features_2d"]
 
             # Aligner
             aligner = getattr(self, f"aligner_{modality_name}")
@@ -268,11 +296,13 @@ class FusedPyramidCollab(nn.Module):
         reg_preds = self.reg_head(fused_feature)
         dir_preds = self.dir_head(fused_feature)
 
-        output_dict.update({
-            'cls_preds': cls_preds,
-            'reg_preds': reg_preds,
-            'dir_preds': dir_preds,
-            'occ_single_list': occ_outputs,
-        })
+        output_dict.update(
+            {
+                "cls_preds": cls_preds,
+                "reg_preds": reg_preds,
+                "dir_preds": dir_preds,
+                "occ_single_list": occ_outputs,
+            }
+        )
 
         return output_dict

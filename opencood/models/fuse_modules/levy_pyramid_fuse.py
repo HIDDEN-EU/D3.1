@@ -36,8 +36,9 @@ def poisson_inverse_moment(lam, max_terms=96, asymptotic_threshold=30.0):
         n_terms = 1
     else:
         lam_max = float(lam_series.detach().max())
-        n_terms = int(min(max_terms,
-                          math.ceil(lam_max + 6.0 * math.sqrt(lam_max) + 8.0)))
+        n_terms = int(
+            min(max_terms, math.ceil(lam_max + 6.0 * math.sqrt(lam_max) + 8.0))
+        )
 
     pmf = torch.exp(-lam_series)  # p_0
     phi = torch.zeros_like(lam_series)
@@ -94,11 +95,21 @@ def _sample_multinomial_fuse(features, p, counts, eps=1e-12):
     return acc / counts.clamp(min=1.0)
 
 
-def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
-                       tau=0.5, gamma=1.0, logits=None,
-                       disagreement_reduction='mean', disagreement_mode='raw',
-                       aux_disagreement_modes=(), stochastic=False,
-                       agent_logit_fn=None):
+def levy_weighted_fuse(
+    x,
+    score,
+    record_len,
+    affine_matrix,
+    align_corners,
+    tau=0.5,
+    gamma=1.0,
+    logits=None,
+    disagreement_reduction="mean",
+    disagreement_mode="raw",
+    aux_disagreement_modes=(),
+    stochastic=False,
+    agent_logit_fn=None,
+):
     """
     Levy replacement for :func:`opencood.models.fuse_modules.pyramid_fuse.weighted_fuse`.
 
@@ -183,22 +194,25 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
         N = record_len[b]
         t_matrix = affine_matrix[b][:N, :N, :, :]
         i = 0  # ego
-        feature_in_ego = warp_affine_simple(split_x[b],
-                                            t_matrix[i, :, :, :],
-                                            (H, W), align_corners=align_corners)
-        scores_in_ego = warp_affine_simple(split_score[b],
-                                           t_matrix[i, :, :, :],
-                                           (H, W), align_corners=align_corners)
+        feature_in_ego = warp_affine_simple(
+            split_x[b], t_matrix[i, :, :, :], (H, W), align_corners=align_corners
+        )
+        scores_in_ego = warp_affine_simple(
+            split_score[b], t_matrix[i, :, :, :], (H, W), align_corners=align_corners
+        )
         # HEAL masks these to -inf before the softmax; here they simply carry zero
         # intensity, so they contribute neither weight nor evidence.
-        valid = (scores_in_ego != 0)
+        valid = scores_in_ego != 0
 
         if split_logits is None:
             s_map = scores_in_ego
         else:
-            s_map = warp_affine_simple(split_logits[b],
-                                       t_matrix[i, :, :, :],
-                                       (H, W), align_corners=align_corners)
+            s_map = warp_affine_simple(
+                split_logits[b],
+                t_matrix[i, :, :, :],
+                (H, W),
+                align_corners=align_corners,
+            )
 
         # lambda_j = tau * exp(gamma * S_j), held in log space.
         log_lambda = math.log(tau) + gamma * s_map
@@ -227,18 +241,19 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
         # features, which cancels the ||F||^2 scaling. Cells no agent observes
         # keep weights = 0 and so still come out at exactly 0.
         def _disagreement(mode):
-            if mode == 'cosine':
+            if mode == "cosine":
                 feat_d = feature_in_ego / feature_in_ego.norm(
-                    dim=1, keepdim=True).clamp(min=NORM_EPS)
+                    dim=1, keepdim=True
+                ).clamp(min=NORM_EPS)
                 mean_d = torch.sum(feat_d * weights, dim=0)
             else:
                 feat_d = feature_in_ego
                 mean_d = fused
-            sq_norm = torch.sum(feat_d ** 2, dim=1, keepdim=True)
+            sq_norm = torch.sum(feat_d**2, dim=1, keepdim=True)
             second_moment = torch.sum(weights * sq_norm, dim=0)
-            d = (second_moment - torch.sum(mean_d ** 2, dim=0, keepdim=True))
+            d = second_moment - torch.sum(mean_d**2, dim=0, keepdim=True)
             d = d.clamp(min=0.0)
-            if disagreement_reduction == 'mean' and mode != 'cosine':
+            if disagreement_reduction == "mean" and mode != "cosine":
                 d = d / C
             return d
 
@@ -260,11 +275,13 @@ def levy_weighted_fuse(x, score, record_len, affine_matrix, align_corners,
 
         n_valid_list.append(valid.sum(dim=0))
 
-    return (torch.stack(out),
-            torch.stack(log_evidence_list),
-            torch.stack(disagreement_list),
-            torch.stack(n_valid_list),
-            {m: torch.stack(v) for m, v in aux_lists.items()})
+    return (
+        torch.stack(out),
+        torch.stack(log_evidence_list),
+        torch.stack(disagreement_list),
+        torch.stack(n_valid_list),
+        {m: torch.stack(v) for m, v in aux_lists.items()},
+    )
 
 
 def overlap_masked_stats(tensor, overlap_mask, quantiles=(0.5, 0.9, 0.99)):
@@ -297,32 +314,36 @@ def overlap_masked_stats(tensor, overlap_mask, quantiles=(0.5, 0.9, 0.99)):
     if tensor.shape[-2:] != overlap_mask.shape[-2:]:
         raise ValueError(
             f"overlap mask {tuple(overlap_mask.shape[-2:])} does not match map "
-            f"{tuple(tensor.shape[-2:])}; use the mask of the same pyramid level")
+            f"{tuple(tensor.shape[-2:])}; use the mask of the same pyramid level"
+        )
 
-    mask = overlap_mask.expand_as(tensor) if overlap_mask.shape != tensor.shape \
+    mask = (
+        overlap_mask.expand_as(tensor)
+        if overlap_mask.shape != tensor.shape
         else overlap_mask
+    )
     selected = tensor[mask.bool()].float()
 
     stats = {
-        'n_cells': int(selected.numel()),
-        'coverage': float(selected.numel()) / float(tensor.numel()),
+        "n_cells": int(selected.numel()),
+        "coverage": float(selected.numel()) / float(tensor.numel()),
     }
     if selected.numel() == 0:
-        stats.update({'mean': float('nan'), 'std': float('nan'),
-                      'max': float('nan')})
-        stats.update({f'q{int(q * 100)}': float('nan') for q in quantiles})
+        stats.update({"mean": float("nan"), "std": float("nan"), "max": float("nan")})
+        stats.update({f"q{int(q * 100)}": float("nan") for q in quantiles})
         return stats
 
-    qs = torch.quantile(selected, torch.tensor(list(quantiles),
-                                               device=selected.device))
-    stats.update({
-        'mean': selected.mean().item(),
-        'std': selected.std().item() if selected.numel() > 1 else 0.0,
-        'max': selected.max().item(),
-    })
-    stats.update({f'q{int(q * 100)}': qs[k].item()
-                  for k, q in enumerate(quantiles)})
+    qs = torch.quantile(selected, torch.tensor(list(quantiles), device=selected.device))
+    stats.update(
+        {
+            "mean": selected.mean().item(),
+            "std": selected.std().item() if selected.numel() > 1 else 0.0,
+            "max": selected.max().item(),
+        }
+    )
+    stats.update({f"q{int(q * 100)}": qs[k].item() for k, q in enumerate(quantiles)})
     return stats
+
 
 class LevyPyramidFusion(PyramidFusion):
     """
@@ -342,13 +363,13 @@ class LevyPyramidFusion(PyramidFusion):
     def __init__(self, model_cfg, input_channels=64):
         super().__init__(model_cfg, input_channels)
 
-        levy_cfg = model_cfg.get('levy', {}) or {}
+        levy_cfg = model_cfg.get("levy", {}) or {}
 
-        self.tau = float(levy_cfg.get('rate_tau', 0.5))
+        self.tau = float(levy_cfg.get("rate_tau", 0.5))
         assert self.tau > 0, "levy.rate_tau must be positive"
 
-        gamma = float(levy_cfg.get('temp_gamma', 1.0))
-        if levy_cfg.get('learnable_gamma', False):
+        gamma = float(levy_cfg.get("temp_gamma", 1.0))
+        if levy_cfg.get("learnable_gamma", False):
             # Optional single scalar; note this adds a key to the state_dict and so
             # breaks strict loading of a plain PyramidFusion checkpoint.
             self.log_gamma = nn.Parameter(torch.tensor(math.log(gamma)))
@@ -356,52 +377,60 @@ class LevyPyramidFusion(PyramidFusion):
             self.log_gamma = None
             self.gamma_value = gamma
 
-        self.score_mode = levy_cfg.get('score_mode', 'heal')
-        assert self.score_mode in ('heal', 'logit'), \
+        self.score_mode = levy_cfg.get("score_mode", "heal")
+        assert self.score_mode in ("heal", "logit"), (
             f"unknown levy.score_mode {self.score_mode}"
+        )
 
-        self.disagreement_reduction = levy_cfg.get('disagreement_reduction', 'sum')
-        assert self.disagreement_reduction in ('sum', 'mean')
+        self.disagreement_reduction = levy_cfg.get("disagreement_reduction", "sum")
+        assert self.disagreement_reduction in ("sum", "mean")
 
-        self.disagreement_mode = levy_cfg.get('disagreement_mode', 'raw')
-        assert self.disagreement_mode in ('raw', 'cosine'), \
+        self.disagreement_mode = levy_cfg.get("disagreement_mode", "raw")
+        assert self.disagreement_mode in ("raw", "cosine"), (
             f"unknown levy.disagreement_mode {self.disagreement_mode}"
+        )
 
         # Extra channels computed in the same forward. Publishing them together
         # is what makes a raw-vs-cosine comparison strictly paired: two separate
         # runs are not bit-identical (scores near score_threshold cross it), so
         # they do not even produce the same set of boxes.
         self.aux_disagreement_modes = tuple(
-            levy_cfg.get('aux_disagreement_modes', ()) or ())
+            levy_cfg.get("aux_disagreement_modes", ()) or ()
+        )
         for _m in self.aux_disagreement_modes:
-            assert _m in ('raw', 'cosine'), f"unknown aux disagreement mode {_m}"
-        if self.disagreement_mode == 'cosine' and self.disagreement_reduction == 'mean':
-            print("Levy: disagreement_reduction='mean' is ignored under "
-                  "disagreement_mode='cosine' (already channel-count free).")
+            assert _m in ("raw", "cosine"), f"unknown aux disagreement mode {_m}"
+        if self.disagreement_mode == "cosine" and self.disagreement_reduction == "mean":
+            print(
+                "Levy: disagreement_reduction='mean' is ignored under "
+                "disagreement_mode='cosine' (already channel-count free)."
+            )
 
-        self.compute_uncertainty = bool(levy_cfg.get('compute_uncertainty', True))
-        self.detach_uncertainty = bool(levy_cfg.get('detach_uncertainty', True))
+        self.compute_uncertainty = bool(levy_cfg.get("compute_uncertainty", True))
+        self.detach_uncertainty = bool(levy_cfg.get("detach_uncertainty", True))
 
-        scale_weights = levy_cfg.get('scale_weights', None)
+        scale_weights = levy_cfg.get("scale_weights", None)
         if scale_weights is None:
             scale_weights = [1.0] * self.num_levels
-        assert len(scale_weights) == self.num_levels, \
+        assert len(scale_weights) == self.num_levels, (
             f"levy.scale_weights must have {self.num_levels} entries"
+        )
         total = float(sum(scale_weights))
         self.scale_weights = [float(w) / total for w in scale_weights]
 
-        calibration = levy_cfg.get('calibration', {}) or {}
+        calibration = levy_cfg.get("calibration", {}) or {}
         # Plain floats, not buffers: the state_dict must stay identical to
         # PyramidFusion's so checkpoints remain interchangeable.
-        self.calib_a = float(calibration.get('a', 1.0))
-        self.calib_b = float(calibration.get('b', 0.0))
+        self.calib_a = float(calibration.get("a", 1.0))
+        self.calib_b = float(calibration.get("b", 0.0))
 
         self.uncertainty_output = None
 
+        print(
+            f"Levy pyramid fusion: tau={self.tau}, gamma={gamma}, "
+            f"score_mode={self.score_mode}, disagreement={self.disagreement_mode}"
+            f"/{self.disagreement_reduction}, scale_weights={self.scale_weights} "
+        )
 
-        print(f'Levy pyramid fusion: tau={self.tau}, gamma={gamma}, '
-              f'score_mode={self.score_mode}, disagreement={self.disagreement_mode}'
-              f'/{self.disagreement_reduction}, scale_weights={self.scale_weights} ')
     @property
     def gamma(self):
         """Logit temperature; a tensor when ``learnable_gamma`` is on."""
@@ -418,9 +447,16 @@ class LevyPyramidFusion(PyramidFusion):
         self.calib_a = float(a)
         self.calib_b = float(b)
 
-    def forward_collab(self, spatial_features, record_len, affine_matrix,
-                       agent_modality_list=None, cam_crop_info=None,
-                       return_uncertainty=False, stochastic=False):
+    def forward_collab(
+        self,
+        spatial_features,
+        record_len,
+        affine_matrix,
+        agent_modality_list=None,
+        cam_crop_info=None,
+        return_uncertainty=False,
+        stochastic=False,
+    ):
         """
         spatial_features : torch.tensor
             [sum(record_len), C, H, W]
@@ -458,7 +494,8 @@ class LevyPyramidFusion(PyramidFusion):
         if stochastic and self.training:
             raise RuntimeError(
                 "LevyPyramidFusion: the stochastic path is not differentiable; "
-                "training must use the deterministic mean path (Theorem 1).")
+                "training must use the deterministic mean path (Theorem 1)."
+            )
 
         crop_mask_flag = False
         if cam_crop_info is not None and len(cam_crop_info) > 0:
@@ -476,8 +513,10 @@ class LevyPyramidFusion(PyramidFusion):
 
         with torch.set_grad_enabled(torch.is_grad_enabled() and not self.trunk_no_grad):
             feature_list = self.get_multiscale_feature(spatial_features)
-            occ_map_list = [getattr(self, f"single_head_{i}")(feature_list[i])  # [N, 1, H, W]
-                            for i in range(self.num_levels)]
+            occ_map_list = [
+                getattr(self, f"single_head_{i}")(feature_list[i])  # [N, 1, H, W]
+                for i in range(self.num_levels)
+            ]
         fused_feature_list = []
         per_scale = []
 
@@ -489,25 +528,41 @@ class LevyPyramidFusion(PyramidFusion):
                 cam_crop_mask = torch.ones_like(occ_map, device=occ_map.device)
                 _, _, H, W = cam_crop_mask.shape
                 for cam_modality in cam_modality_set:
-                    crop_H = H / cam_crop_info[cam_modality][f"crop_ratio_H_{cam_modality}"] - 4 # There may be unstable response values at the edges.
-                    crop_W = W / cam_crop_info[cam_modality][f"crop_ratio_W_{cam_modality}"] - 4 # There may be unstable response values at the edges.
+                    crop_H = (
+                        H / cam_crop_info[cam_modality][f"crop_ratio_H_{cam_modality}"]
+                        - 4
+                    )  # There may be unstable response values at the edges.
+                    crop_W = (
+                        W / cam_crop_info[cam_modality][f"crop_ratio_W_{cam_modality}"]
+                        - 4
+                    )  # There may be unstable response values at the edges.
 
-                    start_h = int(H//2-crop_H//2)
-                    end_h = int(H//2+crop_H//2)
-                    start_w = int(W//2-crop_W//2)
-                    end_w = int(W//2+crop_W//2)
+                    start_h = int(H // 2 - crop_H // 2)
+                    end_h = int(H // 2 + crop_H // 2)
+                    start_w = int(W // 2 - crop_W // 2)
+                    end_w = int(W // 2 + crop_W // 2)
 
-                    cam_crop_mask[cam_agent_mask_dict[cam_modality],:,start_h:end_h, start_w:end_w] = 0
-                    cam_crop_mask[cam_agent_mask_dict[cam_modality]] = 1 - cam_crop_mask[cam_agent_mask_dict[cam_modality]]
+                    cam_crop_mask[
+                        cam_agent_mask_dict[cam_modality],
+                        :,
+                        start_h:end_h,
+                        start_w:end_w,
+                    ] = 0
+                    cam_crop_mask[cam_agent_mask_dict[cam_modality]] = (
+                        1 - cam_crop_mask[cam_agent_mask_dict[cam_modality]]
+                    )
 
                 score = score * cam_crop_mask
 
             fused, log_evidence, disagreement, n_valid, aux = levy_weighted_fuse(
-                feature_list[i], score, record_len, affine_matrix,
+                feature_list[i],
+                score,
+                record_len,
+                affine_matrix,
                 self.align_corners,
                 tau=self.tau,
                 gamma=self.gamma,
-                logits=occ_map if self.score_mode == 'logit' else None,
+                logits=occ_map if self.score_mode == "logit" else None,
                 disagreement_reduction=self.disagreement_reduction,
                 disagreement_mode=self.disagreement_mode,
                 aux_disagreement_modes=self.aux_disagreement_modes,
@@ -519,8 +574,9 @@ class LevyPyramidFusion(PyramidFusion):
 
         fused_feature = self.decode_multiscale_feature(fused_feature_list)
 
-        self.uncertainty_output = self._build_trust_map(per_scale) \
-            if self.compute_uncertainty else None
+        self.uncertainty_output = (
+            self._build_trust_map(per_scale) if self.compute_uncertainty else None
+        )
 
         if return_uncertainty:
             return fused_feature, occ_map_list, self.uncertainty_output
@@ -555,44 +611,54 @@ class LevyPyramidFusion(PyramidFusion):
             evidence = torch.exp(log_evidence.clamp(max=60.0))
             phi = poisson_inverse_moment(evidence)
             sigma = torch.sqrt(F.relu(disagreement * phi))
-            overlap_mask = (n_valid >= 2)
+            overlap_mask = n_valid >= 2
 
-            scale_maps.append({
-                'evidence': evidence,
-                'log_evidence': log_evidence,
-                'disagreement': disagreement,
-                'sigma': sigma,
-                'n_valid': n_valid,
-                'overlap_mask': overlap_mask,
-            })
+            scale_maps.append(
+                {
+                    "evidence": evidence,
+                    "log_evidence": log_evidence,
+                    "disagreement": disagreement,
+                    "sigma": sigma,
+                    "n_valid": n_valid,
+                    "overlap_mask": overlap_mask,
+                }
+            )
             for _m, _d in aux.items():
                 _d = _d.detach() if self.detach_uncertainty else _d
-                scale_maps[-1][f'disagreement_{_m}'] = _d
-                scale_maps[-1][f'sigma_{_m}'] = torch.sqrt(F.relu(_d * phi))
+                scale_maps[-1][f"disagreement_{_m}"] = _d
+                scale_maps[-1][f"sigma_{_m}"] = torch.sqrt(F.relu(_d * phi))
 
             if i == 0:
                 base_overlap = overlap_mask
                 base_n_valid = n_valid
             else:
-                evidence = F.interpolate(evidence, size=base_size,
-                                         mode='bilinear', align_corners=False)
-                disagreement = F.interpolate(disagreement, size=base_size,
-                                             mode='bilinear', align_corners=False)
-                sigma = F.interpolate(sigma, size=base_size,
-                                      mode='bilinear', align_corners=False)
+                evidence = F.interpolate(
+                    evidence, size=base_size, mode="bilinear", align_corners=False
+                )
+                disagreement = F.interpolate(
+                    disagreement, size=base_size, mode="bilinear", align_corners=False
+                )
+                sigma = F.interpolate(
+                    sigma, size=base_size, mode="bilinear", align_corners=False
+                )
 
             w = self.scale_weights[i]
             sigma_acc = w * sigma if sigma_acc is None else sigma_acc + w * sigma
-            evidence_acc = w * evidence if evidence_acc is None else evidence_acc + w * evidence
-            disagreement_acc = w * disagreement if disagreement_acc is None \
+            evidence_acc = (
+                w * evidence if evidence_acc is None else evidence_acc + w * evidence
+            )
+            disagreement_acc = (
+                w * disagreement
+                if disagreement_acc is None
                 else disagreement_acc + w * disagreement
+            )
 
         return {
-            'evidence': evidence_acc,
-            'disagreement': disagreement_acc,
-            'sigma': sigma_acc,
-            'sigma_calibrated': self.calib_a * sigma_acc + self.calib_b,
-            'n_valid': base_n_valid,
-            'overlap_mask': base_overlap,
-            'per_scale': scale_maps,
+            "evidence": evidence_acc,
+            "disagreement": disagreement_acc,
+            "sigma": sigma_acc,
+            "sigma_calibrated": self.calib_a * sigma_acc + self.calib_b,
+            "n_valid": base_n_valid,
+            "overlap_mask": base_overlap,
+            "per_scale": scale_maps,
         }

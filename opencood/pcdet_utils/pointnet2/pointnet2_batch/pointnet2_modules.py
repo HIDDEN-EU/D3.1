@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -7,15 +6,16 @@ from opencood.pcdet_utils.pointnet2.pointnet2_batch import pointnet2_utils
 
 
 class _PointnetSAModuleBase(nn.Module):
-
     def __init__(self):
         super().__init__()
         self.npoint = None
         self.groupers = None
         self.mlps = None
-        self.pool_method = 'max_pool'
+        self.pool_method = "max_pool"
 
-    def forward(self, xyz: torch.Tensor, features: torch.Tensor = None, new_xyz=None) -> (torch.Tensor, torch.Tensor):
+    def forward(
+        self, xyz: torch.Tensor, features: torch.Tensor = None, new_xyz=None
+    ) -> (torch.Tensor, torch.Tensor):
         r"""
         :param xyz: (B, N, 3) tensor of the xyz coordinates of the features
         :param features: (B, N, C) tensor of the descriptors of the the features
@@ -28,20 +28,27 @@ class _PointnetSAModuleBase(nn.Module):
 
         xyz_flipped = xyz.transpose(1, 2).contiguous()
         if new_xyz is None:
-            new_xyz = pointnet2_utils.gather_operation(
-                xyz_flipped,
-                pointnet2_utils.furthest_point_sample(xyz, self.npoint)
-            ).transpose(1, 2).contiguous() if self.npoint is not None else None
+            new_xyz = (
+                pointnet2_utils.gather_operation(
+                    xyz_flipped, pointnet2_utils.furthest_point_sample(xyz, self.npoint)
+                )
+                .transpose(1, 2)
+                .contiguous()
+                if self.npoint is not None
+                else None
+            )
 
         for i in range(len(self.groupers)):
-            new_features = self.groupers[i](xyz, new_xyz, features)  # (B, C, npoint, nsample)
+            new_features = self.groupers[i](
+                xyz, new_xyz, features
+            )  # (B, C, npoint, nsample)
 
             new_features = self.mlps[i](new_features)  # (B, mlp[-1], npoint, nsample)
-            if self.pool_method == 'max_pool':
+            if self.pool_method == "max_pool":
                 new_features = F.max_pool2d(
                     new_features, kernel_size=[1, new_features.size(3)]
                 )  # (B, mlp[-1], npoint, 1)
-            elif self.pool_method == 'avg_pool':
+            elif self.pool_method == "avg_pool":
                 new_features = F.avg_pool2d(
                     new_features, kernel_size=[1, new_features.size(3)]
                 )  # (B, mlp[-1], npoint, 1)
@@ -57,8 +64,17 @@ class _PointnetSAModuleBase(nn.Module):
 class PointnetSAModuleMSG(_PointnetSAModuleBase):
     """Pointnet set abstraction layer with multiscale grouping"""
 
-    def __init__(self, *, npoint: int, radii: list[float], nsamples: list[int], mlps: list[list[int]], bn: bool = True,
-                 use_xyz: bool = True, pool_method='max_pool'):
+    def __init__(
+        self,
+        *,
+        npoint: int,
+        radii: list[float],
+        nsamples: list[int],
+        mlps: list[list[int]],
+        bn: bool = True,
+        use_xyz: bool = True,
+        pool_method="max_pool",
+    ):
         """
         :param npoint: int
         :param radii: list of float, list of radii to group with
@@ -80,7 +96,8 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
             nsample = nsamples[i]
             self.groupers.append(
                 pointnet2_utils.QueryAndGroup(radius, nsample, use_xyz=use_xyz)
-                if npoint is not None else pointnet2_utils.GroupAll(use_xyz)
+                if npoint is not None
+                else pointnet2_utils.GroupAll(use_xyz)
             )
             mlp_spec = mlps[i]
             if use_xyz:
@@ -88,11 +105,15 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
 
             shared_mlps = []
             for k in range(len(mlp_spec) - 1):
-                shared_mlps.extend([
-                    nn.Conv2d(mlp_spec[k], mlp_spec[k + 1], kernel_size=1, bias=False),
-                    nn.BatchNorm2d(mlp_spec[k + 1]),
-                    nn.ReLU()
-                ])
+                shared_mlps.extend(
+                    [
+                        nn.Conv2d(
+                            mlp_spec[k], mlp_spec[k + 1], kernel_size=1, bias=False
+                        ),
+                        nn.BatchNorm2d(mlp_spec[k + 1]),
+                        nn.ReLU(),
+                    ]
+                )
             self.mlps.append(nn.Sequential(*shared_mlps))
 
         self.pool_method = pool_method
@@ -101,8 +122,17 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
 class PointnetSAModule(PointnetSAModuleMSG):
     """Pointnet set abstraction layer"""
 
-    def __init__(self, *, mlp: list[int], npoint: int = None, radius: float = None, nsample: int = None,
-                 bn: bool = True, use_xyz: bool = True, pool_method='max_pool'):
+    def __init__(
+        self,
+        *,
+        mlp: list[int],
+        npoint: int = None,
+        radius: float = None,
+        nsample: int = None,
+        bn: bool = True,
+        use_xyz: bool = True,
+        pool_method="max_pool",
+    ):
         """
         :param mlp: list of int, spec of the pointnet before the global max_pool
         :param npoint: int, number of features
@@ -113,8 +143,13 @@ class PointnetSAModule(PointnetSAModuleMSG):
         :param pool_method: max_pool / avg_pool
         """
         super().__init__(
-            mlps=[mlp], npoint=npoint, radii=[radius], nsamples=[nsample], bn=bn, use_xyz=use_xyz,
-            pool_method=pool_method
+            mlps=[mlp],
+            npoint=npoint,
+            radii=[radius],
+            nsamples=[nsample],
+            bn=bn,
+            use_xyz=use_xyz,
+            pool_method=pool_method,
         )
 
 
@@ -130,15 +165,21 @@ class PointnetFPModule(nn.Module):
 
         shared_mlps = []
         for k in range(len(mlp) - 1):
-            shared_mlps.extend([
-                nn.Conv2d(mlp[k], mlp[k + 1], kernel_size=1, bias=False),
-                nn.BatchNorm2d(mlp[k + 1]),
-                nn.ReLU()
-            ])
+            shared_mlps.extend(
+                [
+                    nn.Conv2d(mlp[k], mlp[k + 1], kernel_size=1, bias=False),
+                    nn.BatchNorm2d(mlp[k + 1]),
+                    nn.ReLU(),
+                ]
+            )
         self.mlp = nn.Sequential(*shared_mlps)
 
     def forward(
-            self, unknown: torch.Tensor, known: torch.Tensor, unknow_feats: torch.Tensor, known_feats: torch.Tensor
+        self,
+        unknown: torch.Tensor,
+        known: torch.Tensor,
+        unknow_feats: torch.Tensor,
+        known_feats: torch.Tensor,
     ) -> torch.Tensor:
         """
         :param unknown: (B, n, 3) tensor of the xyz positions of the unknown features
@@ -154,12 +195,18 @@ class PointnetFPModule(nn.Module):
             norm = torch.sum(dist_recip, dim=2, keepdim=True)
             weight = dist_recip / norm
 
-            interpolated_feats = pointnet2_utils.three_interpolate(known_feats, idx, weight)
+            interpolated_feats = pointnet2_utils.three_interpolate(
+                known_feats, idx, weight
+            )
         else:
-            interpolated_feats = known_feats.expand(*known_feats.size()[0:2], unknown.size(1))
+            interpolated_feats = known_feats.expand(
+                *known_feats.size()[0:2], unknown.size(1)
+            )
 
         if unknow_feats is not None:
-            new_features = torch.cat([interpolated_feats, unknow_feats], dim=1)  # (B, C2 + C1, n)
+            new_features = torch.cat(
+                [interpolated_feats, unknow_feats], dim=1
+            )  # (B, C2 + C1, n)
         else:
             new_features = interpolated_feats
 

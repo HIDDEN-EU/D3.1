@@ -21,6 +21,7 @@ class WeightedSmoothL1Loss(nn.Module):
                   | abs(x) - 0.5 * beta   otherwise,
     where x = input - target.
     """
+
     def __init__(self, beta: float = 1.0 / 9.0, code_weights: list = None):
         """
         Args:
@@ -42,12 +43,13 @@ class WeightedSmoothL1Loss(nn.Module):
             loss = torch.abs(diff)
         else:
             n = torch.abs(diff)
-            loss = torch.where(n < beta, 0.5 * n ** 2 / beta, n - 0.5 * beta)
+            loss = torch.where(n < beta, 0.5 * n**2 / beta, n - 0.5 * beta)
 
         return loss
 
-    def forward(self, input: torch.Tensor,
-                target: torch.Tensor, weights: torch.Tensor = None):
+    def forward(
+        self, input: torch.Tensor, target: torch.Tensor, weights: torch.Tensor = None
+    ):
         """
         Args:
             input: (B, #anchors, #codes) float tensor.
@@ -67,39 +69,41 @@ class WeightedSmoothL1Loss(nn.Module):
 
         # anchor-wise weighting
         if weights is not None:
-            assert weights.shape[0] == loss.shape[0] and weights.shape[1] == loss.shape[1]
+            assert (
+                weights.shape[0] == loss.shape[0] and weights.shape[1] == loss.shape[1]
+            )
             loss = loss * weights.unsqueeze(-1)
 
         return loss
-
-
 
 
 class KLLoss(nn.Module):
     def __init__(self, args):
         super().__init__()
 
-        self.angle_weight = args['angle_weight']
-        self.uncertainty_dim = args['uncertainty_dim']
-        if args['xy_loss_type'] == "l2":
+        self.angle_weight = args["angle_weight"]
+        self.uncertainty_dim = args["uncertainty_dim"]
+        if args["xy_loss_type"] == "l2":
             self.xy_loss = self.kl_loss_l2
-        elif args['xy_loss_type'] == "l1":
+        elif args["xy_loss_type"] == "l1":
             self.xy_loss = self.kl_loss_l1
         else:
             raise "not implemented"
 
-        if args['angle_loss_type'] == "l2":
+        if args["angle_loss_type"] == "l2":
             self.angle_loss = self.kl_loss_l2
-        elif args['angle_loss_type'] == "von":
-            lambda_V = args['lambda_V']
-            s0 = args['s0']
-            limit_period = args['limit_period']
-            self.angle_loss = partial(self.kl_loss_angular, lambda_V=lambda_V, s0=s0, limit_period=limit_period)
+        elif args["angle_loss_type"] == "von":
+            lambda_V = args["lambda_V"]
+            s0 = args["s0"]
+            limit_period = args["limit_period"]
+            self.angle_loss = partial(
+                self.kl_loss_angular,
+                lambda_V=lambda_V,
+                s0=s0,
+                limit_period=limit_period,
+            )
         else:
             raise "not implemented"
-
-
-
 
     @staticmethod
     def kl_loss_l2(diff, s):
@@ -110,9 +114,9 @@ class KLLoss(nn.Module):
         Returns:
             loss: [B, 2]
         """
-        loss = 0.5*(torch.exp(-s) * (diff**2) + s)
+        loss = 0.5 * (torch.exp(-s) * (diff**2) + s)
         return loss
-    
+
     @staticmethod
     def kl_loss_l1(diff, s):
         """
@@ -122,69 +126,78 @@ class KLLoss(nn.Module):
         Returns:
             loss: [B, 2]
         """
-        loss = 0.5*torch.exp(-s) * torch.abs(diff) + s
+        loss = 0.5 * torch.exp(-s) * torch.abs(diff) + s
         return loss
-    
+
     @staticmethod
     def kl_loss_angular(diff, s, lambda_V=1, s0=1, limit_period=False):
         """
         Args:
             diff: [B, 1]
             s:    [B, 1]
-            if limit_period, 
-                diff + 180 ~ diff. 
+            if limit_period,
+                diff + 180 ~ diff.
         Returns:
             loss: [B, 1]
         """
         exp_minus_s = torch.exp(-s)
         if limit_period:
             cos_abs = torch.abs(torch.cos(diff))
-            loss = loss = torch.log(mathh.i0e_cuda(exp_minus_s)*torch.exp(exp_minus_s)) - exp_minus_s * cos_abs.detach() + lambda_V * F.elu(s-s0)
+            loss = loss = (
+                torch.log(mathh.i0e_cuda(exp_minus_s) * torch.exp(exp_minus_s))
+                - exp_minus_s * cos_abs.detach()
+                + lambda_V * F.elu(s - s0)
+            )
         else:
-            loss = torch.log(mathh.i0e_cuda(exp_minus_s)*torch.exp(exp_minus_s)) - exp_minus_s * torch.cos(diff) + lambda_V * F.elu(s-s0)
+            loss = (
+                torch.log(mathh.i0e_cuda(exp_minus_s) * torch.exp(exp_minus_s))
+                - exp_minus_s * torch.cos(diff)
+                + lambda_V * F.elu(s - s0)
+            )
 
         return loss
 
-    
-    def forward(self, input: torch.Tensor,
-                      target: torch.Tensor, 
-                      sm: torch.Tensor, 
-                      weights: torch.Tensor = None):
+    def forward(
+        self,
+        input: torch.Tensor,
+        target: torch.Tensor,
+        sm: torch.Tensor,
+        weights: torch.Tensor = None,
+    ):
         target = torch.where(torch.isnan(target), input, target)  # ignore nan targets
-        
-        
 
         if self.uncertainty_dim == 3:
-            xy_diff = input[...,:2] - target[...,:2]
-            loss1 = self.xy_loss(xy_diff, sm[...,:2])
-            
-            theta_diff = input[...,7:8] - target[...,7:8]
+            xy_diff = input[..., :2] - target[..., :2]
+            loss1 = self.xy_loss(xy_diff, sm[..., :2])
 
-            loss2 = self.angle_weight * self.angle_loss(theta_diff, sm[...,2:3])
+            theta_diff = input[..., 7:8] - target[..., 7:8]
+
+            loss2 = self.angle_weight * self.angle_loss(theta_diff, sm[..., 2:3])
 
             loss = torch.cat((loss1, loss2), dim=-1)
-            
+
         elif self.uncertainty_dim == 7:
             ## is this right?
-            other_diff = input[...,:6] - target[...,:6]
-            theta_diff = input[...,7:8] - target[...,7:8]
+            other_diff = input[..., :6] - target[..., :6]
+            theta_diff = input[..., 7:8] - target[..., 7:8]
 
             diff = torch.cat((other_diff, theta_diff), dim=-1)
             loss = self.xy_loss(diff, sm)
 
         elif self.uncertainty_dim == 2:
-            xy_diff = input[...,:2] - target[...,:2]
-            loss = self.xy_loss(xy_diff, sm[...,:2])
+            xy_diff = input[..., :2] - target[..., :2]
+            loss = self.xy_loss(xy_diff, sm[..., :2])
         else:
             raise "not implemented"
 
         # anchor-wise weighting
         if weights is not None:
-            assert weights.shape[0] == loss.shape[0] and weights.shape[1] == loss.shape[1]
+            assert (
+                weights.shape[0] == loss.shape[0] and weights.shape[1] == loss.shape[1]
+            )
             loss = loss * weights.unsqueeze(-1)
-        
-        return loss
 
+        return loss
 
 
 class PointPillarUncertaintyLoss(nn.Module):
@@ -194,25 +207,26 @@ class PointPillarUncertaintyLoss(nn.Module):
         self.alpha = 0.25
         self.gamma = 2.0
 
-        self.cls_weight = args['cls_weight']
-        self.kl_weight = args['kl_weight']
-        self.reg_coe = args['reg']
-        self.uncertainty_dim = args['kl_args']['uncertainty_dim']
+        self.cls_weight = args["cls_weight"]
+        self.kl_weight = args["kl_weight"]
+        self.reg_coe = args["reg"]
+        self.uncertainty_dim = args["kl_args"]["uncertainty_dim"]
 
-        if 'dir_args' in args.keys():
+        if "dir_args" in args.keys():
             self.use_dir = True
-            self.dir_weight = args['dir_args']['dir_weight']
-            self.dir_offset = args['dir_args']['args']['dir_offset']
-            self.num_bins = args['dir_args']['args']['num_bins']
-            anchor_yaw = np.deg2rad(np.array(args['dir_args']['anchor_yaw']))  # for direction classification
-            self.anchor_yaw_map = torch.from_numpy(anchor_yaw).view(1,-1,1)  # [1,2,1]
+            self.dir_weight = args["dir_args"]["dir_weight"]
+            self.dir_offset = args["dir_args"]["args"]["dir_offset"]
+            self.num_bins = args["dir_args"]["args"]["num_bins"]
+            anchor_yaw = np.deg2rad(
+                np.array(args["dir_args"]["anchor_yaw"])
+            )  # for direction classification
+            self.anchor_yaw_map = torch.from_numpy(anchor_yaw).view(1, -1, 1)  # [1,2,1]
             self.anchor_num = self.anchor_yaw_map.shape[1]
 
         else:
-            self.use_dir =False
+            self.use_dir = False
 
-
-        self.kl_loss_func = KLLoss(args['kl_args'])
+        self.kl_loss_func = KLLoss(args["kl_args"])
 
         self.loss_dict = {}
 
@@ -223,23 +237,27 @@ class PointPillarUncertaintyLoss(nn.Module):
         output_dict : dict
         target_dict : dict
         """
-        rm = output_dict['rm']  # [B, 14, 50, 176]
-        psm = output_dict['psm'] # [B, 2, 50, 176]
-        sm = output_dict['sm']  # log of sigma^2 / scale [B, 6, 50 176]
-        targets = target_dict['targets']
+        rm = output_dict["rm"]  # [B, 14, 50, 176]
+        psm = output_dict["psm"]  # [B, 2, 50, 176]
+        sm = output_dict["sm"]  # log of sigma^2 / scale [B, 6, 50 176]
+        targets = target_dict["targets"]
 
-        cls_preds = psm.permute(0, 2, 3, 1).contiguous() # N, C, H, W -> N, H, W, C
+        cls_preds = psm.permute(0, 2, 3, 1).contiguous()  # N, C, H, W -> N, H, W, C
 
-        box_cls_labels = target_dict['pos_equal_one']  # [B, 50, 176, 2] 
-        box_cls_labels = box_cls_labels.view(psm.shape[0], -1).contiguous() # -> [B, 50*176*2], two types of anchor
+        box_cls_labels = target_dict["pos_equal_one"]  # [B, 50, 176, 2]
+        box_cls_labels = box_cls_labels.view(
+            psm.shape[0], -1
+        ).contiguous()  # -> [B, 50*176*2], two types of anchor
 
         positives = box_cls_labels > 0
         negatives = box_cls_labels == 0
         negative_cls_weights = negatives * 1.0
-        cls_weights = (negative_cls_weights + 1.0 * positives).float() # all 1
+        cls_weights = (negative_cls_weights + 1.0 * positives).float()  # all 1
         reg_weights = positives.float()
 
-        pos_normalizer = positives.sum(1, keepdim=True).float() # positive number per sample
+        pos_normalizer = positives.sum(
+            1, keepdim=True
+        ).float()  # positive number per sample
         reg_weights /= torch.clamp(pos_normalizer, min=1.0)
         cls_weights /= torch.clamp(pos_normalizer, min=1.0)
         cls_targets = box_cls_labels
@@ -247,16 +265,18 @@ class PointPillarUncertaintyLoss(nn.Module):
 
         cls_targets = cls_targets.squeeze(dim=-1)
         one_hot_targets = torch.zeros(
-            *list(cls_targets.shape), 2,
-            dtype=cls_preds.dtype, device=cls_targets.device
+            *list(cls_targets.shape),
+            2,
+            dtype=cls_preds.dtype,
+            device=cls_targets.device,
         )
         one_hot_targets.scatter_(-1, cls_targets.unsqueeze(dim=-1).long(), 1.0)
         cls_preds = cls_preds.view(psm.shape[0], -1, 1)
         one_hot_targets = one_hot_targets[..., 1:]
 
-        cls_loss_src = self.cls_loss_func(cls_preds,
-                                          one_hot_targets,
-                                          weights=cls_weights)  # [N, M]
+        cls_loss_src = self.cls_loss_func(
+            cls_preds, one_hot_targets, weights=cls_weights
+        )  # [N, M]
         cls_loss = cls_loss_src.sum() / psm.shape[0]
         conf_loss = cls_loss * self.cls_weight
 
@@ -265,38 +285,37 @@ class PointPillarUncertaintyLoss(nn.Module):
         rm = rm.view(rm.size(0), -1, 7)
         targets = targets.view(targets.size(0), -1, 7)
 
-        box_preds_sin, reg_targets_sin = self.add_sin_difference_dim(rm,
-                                                                 targets)
-        loc_loss_src =\
-            self.reg_loss_func(box_preds_sin[...,:7],
-                               reg_targets_sin[...,:7],
-                               weights=reg_weights)
+        box_preds_sin, reg_targets_sin = self.add_sin_difference_dim(rm, targets)
+        loc_loss_src = self.reg_loss_func(
+            box_preds_sin[..., :7], reg_targets_sin[..., :7], weights=reg_weights
+        )
         reg_loss = loc_loss_src.sum() / rm.shape[0]
         reg_loss *= self.reg_coe
-
 
         ######## direction ##########
         if self.use_dir:
             dir_targets = self.get_direction_target(targets)
-            N =  output_dict["dm"].shape[0]
-            dir_logits = output_dict["dm"].permute(0, 2, 3, 1).contiguous().view(N, -1, 2) # [N, H*W*#anchor, 2]
+            N = output_dict["dm"].shape[0]
+            dir_logits = (
+                output_dict["dm"].permute(0, 2, 3, 1).contiguous().view(N, -1, 2)
+            )  # [N, H*W*#anchor, 2]
 
+            dir_loss = softmax_cross_entropy_with_logits(
+                dir_logits.view(-1, self.anchor_num),
+                dir_targets.view(-1, self.anchor_num),
+            )
 
-            dir_loss = softmax_cross_entropy_with_logits(dir_logits.view(-1, self.anchor_num), dir_targets.view(-1, self.anchor_num)) 
-
-            dir_loss = dir_loss.view(dir_logits.shape[:2]) * reg_weights # [N, H*W*anchor_num]
+            dir_loss = (
+                dir_loss.view(dir_logits.shape[:2]) * reg_weights
+            )  # [N, H*W*anchor_num]
 
             dir_loss = dir_loss.sum() * self.dir_weight / N
 
         ######## kl #########
-        sm = sm.permute(0, 2, 3, 1).contiguous() # [N, H, W, #anchor_num * 3]
+        sm = sm.permute(0, 2, 3, 1).contiguous()  # [N, H, W, #anchor_num * 3]
         sm = sm.view(sm.size(0), -1, self.uncertainty_dim)
 
-        kl_loss_src = \
-            self.kl_loss_func(box_preds_sin,
-                              reg_targets_sin,
-                              sm,
-                              reg_weights)
+        kl_loss_src = self.kl_loss_func(box_preds_sin, reg_targets_sin, sm, reg_weights)
 
         kl_loss = kl_loss_src.sum() / sm.shape[0]
         kl_loss *= self.kl_weight
@@ -304,15 +323,18 @@ class PointPillarUncertaintyLoss(nn.Module):
         # total_loss = reg_loss + conf_loss + kl_loss
         total_loss = reg_loss + conf_loss
 
-        self.loss_dict.update({'total_loss': total_loss,
-                               'reg_loss': reg_loss,
-                               'conf_loss': conf_loss,
-                               'kl_loss': kl_loss})
-        
+        self.loss_dict.update(
+            {
+                "total_loss": total_loss,
+                "reg_loss": reg_loss,
+                "conf_loss": conf_loss,
+                "kl_loss": kl_loss,
+            }
+        )
+
         if self.use_dir:
             # total_loss += dir_loss
-            self.loss_dict.update({'dir_loss': dir_loss})
-
+            self.loss_dict.update({"dir_loss": dir_loss})
 
         return total_loss
 
@@ -321,29 +343,31 @@ class PointPillarUncertaintyLoss(nn.Module):
         Args:
             reg_targets:  [N, H * W * #anchor_num, 7]
                 The last term is (theta_gt - theta_a)
-        
+
         Returns:
             dir_targets:
-                theta_gt: [N, H * W * #anchor_num, NUM_BIN] 
+                theta_gt: [N, H * W * #anchor_num, NUM_BIN]
                 NUM_BIN = 2
         """
         # (1, 2, 1)
         H_times_W_times_anchor_num = reg_targets.shape[1]
-        anchor_map = self.anchor_yaw_map.repeat(1, H_times_W_times_anchor_num//self.anchor_num, 1).to(reg_targets.device) # [1, H * W * #anchor_num, 1]
-        rot_gt = reg_targets[..., -1] + anchor_map[..., -1] # [N, H*W*anchornum]
+        anchor_map = self.anchor_yaw_map.repeat(
+            1, H_times_W_times_anchor_num // self.anchor_num, 1
+        ).to(reg_targets.device)  # [1, H * W * #anchor_num, 1]
+        rot_gt = reg_targets[..., -1] + anchor_map[..., -1]  # [N, H*W*anchornum]
         offset_rot = limit_period(rot_gt - self.dir_offset, 0, 2 * np.pi)
-        dir_cls_targets = torch.floor(offset_rot / (2 * np.pi / self.num_bins)).long()  # [N, H*W*anchornum]
+        dir_cls_targets = torch.floor(
+            offset_rot / (2 * np.pi / self.num_bins)
+        ).long()  # [N, H*W*anchornum]
         dir_cls_targets = torch.clamp(dir_cls_targets, min=0, max=self.num_bins - 1)
         # one_hot:
         # if rot_gt > 0, then the label is 1, then the regression target is [0, 1]
         dir_cls_targets = one_hot_f(dir_cls_targets, self.num_bins)
         return dir_cls_targets
 
-
-
-    def cls_loss_func(self, input: torch.Tensor,
-                      target: torch.Tensor,
-                      weights: torch.Tensor):
+    def cls_loss_func(
+        self, input: torch.Tensor, target: torch.Tensor, weights: torch.Tensor
+    ):
         """
         Args:
             input: (B, #anchors, #classes) float tensor.
@@ -365,8 +389,9 @@ class PointPillarUncertaintyLoss(nn.Module):
 
         loss = focal_weight * bce_loss
 
-        if weights.shape.__len__() == 2 or \
-                (weights.shape.__len__() == 1 and target.shape.__len__() == 2):
+        if weights.shape.__len__() == 2 or (
+            weights.shape.__len__() == 1 and target.shape.__len__() == 2
+        ):
             weights = weights.unsqueeze(-1)
 
         assert weights.shape.__len__() == loss.shape.__len__()
@@ -375,7 +400,7 @@ class PointPillarUncertaintyLoss(nn.Module):
 
     @staticmethod
     def sigmoid_cross_entropy_with_logits(input: torch.Tensor, target: torch.Tensor):
-        """ PyTorch Implementation for tf.nn.sigmoid_cross_entropy_with_logits:
+        """PyTorch Implementation for tf.nn.sigmoid_cross_entropy_with_logits:
             max(x, 0) - x * z + log(1 + exp(-abs(x))) in
             https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
 
@@ -389,8 +414,11 @@ class PointPillarUncertaintyLoss(nn.Module):
             loss: (B, #anchors, #classes) float tensor.
                 Sigmoid cross entropy loss without reduction
         """
-        loss = torch.clamp(input, min=0) - input * target + \
-               torch.log1p(torch.exp(-torch.abs(input)))
+        loss = (
+            torch.clamp(input, min=0)
+            - input * target
+            + torch.log1p(torch.exp(-torch.abs(input)))
+        )
         return loss
 
     @staticmethod
@@ -407,28 +435,31 @@ class PointPillarUncertaintyLoss(nn.Module):
         """
         assert dim != -1
 
-        # sin(theta1 - theta2) = sin(theta1)*cos(theta2) - cos(theta1)*sin(theta2) 
+        # sin(theta1 - theta2) = sin(theta1)*cos(theta2) - cos(theta1)*sin(theta2)
 
-        rad_pred_encoding = torch.sin(boxes1[..., dim:dim + 1]) * \
-                            torch.cos(boxes2[..., dim:dim + 1])
+        rad_pred_encoding = torch.sin(boxes1[..., dim : dim + 1]) * torch.cos(
+            boxes2[..., dim : dim + 1]
+        )
 
-        rad_tg_encoding = torch.cos(boxes1[..., dim: dim + 1]) * \
-                          torch.sin(boxes2[..., dim: dim + 1])
+        rad_tg_encoding = torch.cos(boxes1[..., dim : dim + 1]) * torch.sin(
+            boxes2[..., dim : dim + 1]
+        )
 
         # boxes1 = torch.cat([boxes1[..., :dim], rad_pred_encoding,
         #                     boxes1[..., dim + 1:]], dim=-1)
         # boxes2 = torch.cat([boxes2[..., :dim], rad_tg_encoding,
         #                     boxes2[..., dim + 1:]], dim=-1)
-        
-        boxes1_encoded = torch.cat([boxes1[..., :dim], rad_pred_encoding,
-                            boxes1[..., dim:]], dim=-1)
-        boxes2_encoded = torch.cat([boxes2[..., :dim], rad_tg_encoding,
-                            boxes2[..., dim:]], dim=-1)
+
+        boxes1_encoded = torch.cat(
+            [boxes1[..., :dim], rad_pred_encoding, boxes1[..., dim:]], dim=-1
+        )
+        boxes2_encoded = torch.cat(
+            [boxes2[..., :dim], rad_tg_encoding, boxes2[..., dim:]], dim=-1
+        )
 
         return boxes1_encoded, boxes2_encoded
 
-
-    def logging(self, epoch, batch_id, batch_len, writer = None):
+    def logging(self, epoch, batch_id, batch_len, writer=None):
         """
         Print out  the loss function for current iteration.
 
@@ -443,38 +474,52 @@ class PointPillarUncertaintyLoss(nn.Module):
         writer : SummaryWriter
             Used to visualize on tensorboard
         """
-        total_loss = self.loss_dict['total_loss']
-        reg_loss = self.loss_dict['reg_loss']
-        conf_loss = self.loss_dict['conf_loss']
-        kl_loss = self.loss_dict['kl_loss']
-        
+        total_loss = self.loss_dict["total_loss"]
+        reg_loss = self.loss_dict["reg_loss"]
+        conf_loss = self.loss_dict["conf_loss"]
+        kl_loss = self.loss_dict["kl_loss"]
 
-        print_msg = ("[epoch %d][%d/%d], || Loss: %.4f || Conf Loss: %.4f"
-                    " || Loc Loss: %.4f || KL Loss: %.4f" % (
-                        epoch, batch_id + 1, batch_len,
-                        total_loss.item(), conf_loss.item(), reg_loss.item(),  kl_loss.item()))
-        
+        print_msg = (
+            "[epoch %d][%d/%d], || Loss: %.4f || Conf Loss: %.4f"
+            " || Loc Loss: %.4f || KL Loss: %.4f"
+            % (
+                epoch,
+                batch_id + 1,
+                batch_len,
+                total_loss.item(),
+                conf_loss.item(),
+                reg_loss.item(),
+                kl_loss.item(),
+            )
+        )
+
         if self.use_dir:
-            dir_loss = self.loss_dict['dir_loss']
+            dir_loss = self.loss_dict["dir_loss"]
             print_msg += " || Dir Loss: %.4f" % dir_loss.item()
 
         print(print_msg)
 
         if not writer is None:
-            writer.add_scalar('Regression_loss', reg_loss.item(),
-                            epoch*batch_len + batch_id)
-            writer.add_scalar('Confidence_loss', conf_loss.item(),
-                            epoch*batch_len + batch_id)
-            writer.add_scalar('kl_loss', kl_loss.item(),
-                            epoch*batch_len + batch_id)
+            writer.add_scalar(
+                "Regression_loss", reg_loss.item(), epoch * batch_len + batch_id
+            )
+            writer.add_scalar(
+                "Confidence_loss", conf_loss.item(), epoch * batch_len + batch_id
+            )
+            writer.add_scalar("kl_loss", kl_loss.item(), epoch * batch_len + batch_id)
             if self.use_dir:
-                writer.add_scalar('dir_loss', dir_loss.item(),
-                            epoch*batch_len + batch_id)
+                writer.add_scalar(
+                    "dir_loss", dir_loss.item(), epoch * batch_len + batch_id
+                )
+
 
 def one_hot_f(tensor, depth, dim=-1, on_value=1.0, dtype=torch.float32):
-    tensor_onehot = torch.zeros(*list(tensor.shape), depth, dtype=dtype, device=tensor.device) # [4, 70400, 2]
-    tensor_onehot.scatter_(dim, tensor.unsqueeze(dim).long(), on_value)                        # [4, 70400, 2]
+    tensor_onehot = torch.zeros(
+        *list(tensor.shape), depth, dtype=dtype, device=tensor.device
+    )  # [4, 70400, 2]
+    tensor_onehot.scatter_(dim, tensor.unsqueeze(dim).long(), on_value)  # [4, 70400, 2]
     return tensor_onehot
+
 
 def softmax_cross_entropy_with_logits(logits, labels):
     param = list(range(len(logits.shape)))

@@ -11,26 +11,31 @@ def jensen_shannon_divergence(p, q):
     m = 0.5 * (p + q)
     return 0.5 * (torch.sum(p * torch.log(p / m)) + torch.sum(q * torch.log(q / m)))
 
+
 def compute_distribution_distance(A, B, num_bins=50):
-    hist_A = torch.histc(A, bins=num_bins, min=0, max=0).float() + 1e-5  # 加一个小值防止除以0
+    hist_A = (
+        torch.histc(A, bins=num_bins, min=0, max=0).float() + 1e-5
+    )  # 加一个小值防止除以0
     hist_B = torch.histc(B, bins=num_bins, min=0, max=0).float() + 1e-5
-    
+
     hist_A /= hist_A.sum()
     hist_B /= hist_B.sum()
-    
+
     return jensen_shannon_divergence(hist_A, hist_B)
+
 
 def torch_cov(m):
     m_exp = m - m.mean(dim=0)
     return m_exp.t() @ m_exp / (m.size(0) - 1)
 
+
 # def guassian_kernel(source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None):
 #     '''
 #     将源域数据和目标域数据转化为核矩阵，即上文中的K
-#     Params: 
+#     Params:
 # 	    source: 源域数据（n * len(x))
 # 	    target: 目标域数据（m * len(y))
-# 	    kernel_mul: 
+# 	    kernel_mul:
 # 	    kernel_num: 取不同高斯核的数量
 # 	    fix_sigma: 不同高斯核的sigma值
 # 	Return:
@@ -43,7 +48,7 @@ def torch_cov(m):
 #     #将total的每一行都复制成（n+m）行，即每个数据都扩展成（n+m）份
 #     total1 = total.unsqueeze(1).expand(int(total.size(0)), int(total.size(0)), int(total.size(1)))
 #     #求任意两个数据之间的和，得到的矩阵中坐标（i,j）代表total中第i行数据和第j行数据之间的l2 distance(i==j时为0）
-#     L2_distance = ((total0-total1)**2).sum(2) 
+#     L2_distance = ((total0-total1)**2).sum(2)
 #     #调整高斯核函数的sigma值
 #     if fix_sigma:
 #         bandwidth = fix_sigma
@@ -60,10 +65,10 @@ def torch_cov(m):
 # def mmd_rbf(source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None):
 #     '''
 #     计算源域数据和目标域数据的MMD距离
-#     Params: 
+#     Params:
 # 	    source: 源域数据（n * len(x))
 # 	    target: 目标域数据（m * len(y))
-# 	    kernel_mul: 
+# 	    kernel_mul:
 # 	    kernel_num: 取不同高斯核的数量
 # 	    fix_sigma: 不同高斯核的sigma值
 # 	Return:
@@ -82,24 +87,28 @@ def torch_cov(m):
 
 
 if __name__ == "__main__":
-    pt_files = ["/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_base.pt",
-                "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/lidar_base.pt",
-                "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/hybrid_base.pt",
-                "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/lidar_single.pt",
-                "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/lidar_single_alignto_camera_base.pt",
-                "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/lidar_single_alignto_lidar_base.pt",
-                "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/lidar_single_alignto_hybrid_base.pt",
-                "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single.pt",
-                "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single_alignto_camera_base.pt",
-                "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single_alignto_lidar_base.pt",
-                "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single_alignto_hybrid_base.pt"]
+    pt_files = [
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_base.pt",
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/lidar_base.pt",
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/hybrid_base.pt",
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/lidar_single.pt",
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/lidar_single_alignto_camera_base.pt",
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/lidar_single_alignto_lidar_base.pt",
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/lidar_single_alignto_hybrid_base.pt",
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single.pt",
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single_alignto_camera_base.pt",
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single_alignto_lidar_base.pt",
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single_alignto_hybrid_base.pt",
+    ]
     # pt_files = ["/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single.pt",
     #             "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single_alignto_camera_base.pt",
     #             "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single_alignto_lidar_base.pt",
     #             "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/camera_single_alignto_hybrid_base.pt"]
-    
-    label_dict = {i: pt_file.split("/")[-1].rstrip(".pt") for (i, pt_file) in enumerate(pt_files)}
-    
+
+    label_dict = {
+        i: pt_file.split("/")[-1].rstrip(".pt") for (i, pt_file) in enumerate(pt_files)
+    }
+
     data, datasets, label = load_data(pt_files, random=False)
 
     M = len(datasets)
@@ -119,6 +128,15 @@ if __name__ == "__main__":
 
     # 画热力图
     plt.figure(figsize=(20, 20))
-    sns.heatmap(distance_matrix, annot=True, fmt=".2f", cmap="YlGnBu", xticklabels=labels, yticklabels=labels)
+    sns.heatmap(
+        distance_matrix,
+        annot=True,
+        fmt=".2f",
+        cmap="YlGnBu",
+        xticklabels=labels,
+        yticklabels=labels,
+    )
     plt.tight_layout()
-    plt.savefig("/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/visualization/pairwise_cka")
+    plt.savefig(
+        "/GPFS/rhome/yifanlu/workspace/OpenCOODv2/opencood/logs_HEAL/All_RoI_Feature_center/visualization/pairwise_cka"
+    )

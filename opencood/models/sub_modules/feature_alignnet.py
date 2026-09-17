@@ -17,23 +17,23 @@ from opencood.models.sub_modules.feature_alignnet_modules import (
 class AlignNet(nn.Module):
     def __init__(self, args):
         super().__init__()
-        model_name = args['core_method']
-        
+        model_name = args["core_method"]
+
         if model_name == "scaligner":
-            self.channel_align = SCAligner(args['args'])
+            self.channel_align = SCAligner(args["args"])
         elif model_name == "resnet1x1":
-            self.channel_align = Res1x1Aligner(args['args'])
+            self.channel_align = Res1x1Aligner(args["args"])
         elif model_name == "resnet3x3":
-            self.channel_align = Res3x3Aligner(args['args'])
+            self.channel_align = Res3x3Aligner(args["args"])
         elif model_name == "sdta":
-            self.channel_align = SDTAAgliner(args['args'])
+            self.channel_align = SDTAAgliner(args["args"])
         elif model_name == "cbam":
-            self.channel_align = CBAM(args['args'])
+            self.channel_align = CBAM(args["args"])
         elif model_name == "convnext":
-            self.channel_align = ConvNeXt(args['args'])
+            self.channel_align = ConvNeXt(args["args"])
         elif model_name == "fanet":
-            self.channel_align = FANet(args['args'])
-        elif model_name == 'identity':
+            self.channel_align = FANet(args["args"])
+        elif model_name == "identity":
             self.channel_align = nn.Identity()
 
         self.spatial_align_flag = args.get("spatial_align", False)

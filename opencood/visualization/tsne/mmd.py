@@ -66,7 +66,7 @@ def mmd_poly(X, Y, degree=2, gamma=1, coef0=0):
     return XX.mean() + YY.mean() - 2 * XY.mean()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     a = np.arange(1, 10).reshape(3, 3)
     b = [[7, 6, 5], [4, 3, 2], [1, 1, 8], [0, 2, 5]]
     b = np.array(b)

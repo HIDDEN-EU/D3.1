@@ -8,7 +8,9 @@ import matplotlib.pyplot as plt
 import torch
 
 
-def plot_feature(feature, channel, save_path, flag="", vmin=None, vmax=None, colorbar=True):
+def plot_feature(
+    feature, channel, save_path, flag="", vmin=None, vmax=None, colorbar=True
+):
     """
     Args:
         feature : torch.tensor or np.ndarry
@@ -25,14 +27,14 @@ def plot_feature(feature, channel, save_path, flag="", vmin=None, vmax=None, col
 
     if isinstance(channel, int):
         channel = [channel]
-    
+
     if not os.path.exists(save_path):
         os.mkdir(save_path)
-    
+
     N, C, H, W = feature.shape
     for c in channel:
         for n in range(N):
-            plt.imshow(feature[n,c], vmin=vmin, vmax=vmax)
+            plt.imshow(feature[n, c], vmin=vmin, vmax=vmax)
             file_path = os.path.join(save_path, f"{flag}_agent_{n}_channel_{c}.png")
             if colorbar:
                 plt.colorbar()

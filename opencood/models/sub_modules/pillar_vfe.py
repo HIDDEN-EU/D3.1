@@ -8,11 +8,7 @@ from torch import nn
 
 
 class PFNLayer(nn.Module):
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 use_norm=True,
-                 last_layer=False):
+    def __init__(self, in_channels, out_channels, use_norm=True, last_layer=False):
         super().__init__()
 
         self.last_vfe = last_layer
@@ -32,15 +28,15 @@ class PFNLayer(nn.Module):
         if inputs.shape[0] > self.part:
             # nn.Linear performs randomly when batch size is too large
             num_parts = inputs.shape[0] // self.part
-            part_linear_out = [self.linear(
-                inputs[num_part * self.part:(num_part + 1) * self.part])
-                for num_part in range(num_parts + 1)]
+            part_linear_out = [
+                self.linear(inputs[num_part * self.part : (num_part + 1) * self.part])
+                for num_part in range(num_parts + 1)
+            ]
             x = torch.cat(part_linear_out, dim=0)
         else:
             x = self.linear(inputs)
         torch.backends.cudnn.enabled = False
-        x = self.norm(x.permute(0, 2, 1)).permute(0, 2,
-                                                  1) if self.use_norm else x
+        x = self.norm(x.permute(0, 2, 1)).permute(0, 2, 1) if self.use_norm else x
         torch.backends.cudnn.enabled = True
         x = F.relu(x)
         x_max = torch.max(x, dim=1, keepdim=True)[0]
@@ -54,20 +50,19 @@ class PFNLayer(nn.Module):
 
 
 class PillarVFE(nn.Module):
-    def __init__(self, model_cfg, num_point_features, voxel_size,
-                 point_cloud_range):
+    def __init__(self, model_cfg, num_point_features, voxel_size, point_cloud_range):
         super().__init__()
         self.model_cfg = model_cfg
 
-        self.use_norm = self.model_cfg['use_norm']
-        self.with_distance = self.model_cfg['with_distance']
+        self.use_norm = self.model_cfg["use_norm"]
+        self.with_distance = self.model_cfg["with_distance"]
 
-        self.use_absolute_xyz = self.model_cfg['use_absolute_xyz']
+        self.use_absolute_xyz = self.model_cfg["use_absolute_xyz"]
         num_point_features += 6 if self.use_absolute_xyz else 3
         if self.with_distance:
             num_point_features += 1
 
-        self.num_filters = self.model_cfg['num_filters']
+        self.num_filters = self.model_cfg["num_filters"]
         assert len(self.num_filters) > 0
         num_filters = [num_point_features] + list(self.num_filters)
 
@@ -76,8 +71,12 @@ class PillarVFE(nn.Module):
             in_filters = num_filters[i]
             out_filters = num_filters[i + 1]
             pfn_layers.append(
-                PFNLayer(in_filters, out_filters, self.use_norm,
-                         last_layer=(i >= len(num_filters) - 2))
+                PFNLayer(
+                    in_filters,
+                    out_filters,
+                    self.use_norm,
+                    last_layer=(i >= len(num_filters) - 2),
+                )
             )
         self.pfn_layers = nn.ModuleList(pfn_layers)
 
@@ -96,9 +95,9 @@ class PillarVFE(nn.Module):
         actual_num = torch.unsqueeze(actual_num, axis + 1)
         max_num_shape = [1] * len(actual_num.shape)
         max_num_shape[axis + 1] = -1
-        max_num = torch.arange(max_num,
-                               dtype=torch.int,
-                               device=actual_num.device).view(max_num_shape)
+        max_num = torch.arange(max_num, dtype=torch.int, device=actual_num.device).view(
+            max_num_shape
+        )
         paddings_indicator = actual_num.int() > max_num
         return paddings_indicator
 
@@ -111,25 +110,30 @@ class PillarVFE(nn.Module):
         Returns:
             features: [M,64], after PFN
         """
-        voxel_features, voxel_num_points, coords = \
-            batch_dict['voxel_features'], batch_dict['voxel_num_points'], \
-            batch_dict['voxel_coords']
+        voxel_features, voxel_num_points, coords = (
+            batch_dict["voxel_features"],
+            batch_dict["voxel_num_points"],
+            batch_dict["voxel_coords"],
+        )
 
-        points_mean = \
-            voxel_features[:, :, :3].sum(dim=1, keepdim=True) / \
-            voxel_num_points.type_as(voxel_features).view(-1, 1, 1)
+        points_mean = voxel_features[:, :, :3].sum(
+            dim=1, keepdim=True
+        ) / voxel_num_points.type_as(voxel_features).view(-1, 1, 1)
         f_cluster = voxel_features[:, :, :3] - points_mean
 
         f_center = torch.zeros_like(voxel_features[:, :, :3])
         f_center[:, :, 0] = voxel_features[:, :, 0] - (
-                coords[:, 3].to(voxel_features.dtype).unsqueeze(
-                    1) * self.voxel_x + self.x_offset)
+            coords[:, 3].to(voxel_features.dtype).unsqueeze(1) * self.voxel_x
+            + self.x_offset
+        )
         f_center[:, :, 1] = voxel_features[:, :, 1] - (
-                coords[:, 2].to(voxel_features.dtype).unsqueeze(
-                    1) * self.voxel_y + self.y_offset)
+            coords[:, 2].to(voxel_features.dtype).unsqueeze(1) * self.voxel_y
+            + self.y_offset
+        )
         f_center[:, :, 2] = voxel_features[:, :, 2] - (
-                coords[:, 1].to(voxel_features.dtype).unsqueeze(
-                    1) * self.voxel_z + self.z_offset)
+            coords[:, 1].to(voxel_features.dtype).unsqueeze(1) * self.voxel_z
+            + self.z_offset
+        )
 
         if self.use_absolute_xyz:
             features = [voxel_features, f_cluster, f_center]
@@ -137,19 +141,17 @@ class PillarVFE(nn.Module):
             features = [voxel_features[..., 3:], f_cluster, f_center]
 
         if self.with_distance:
-            points_dist = torch.norm(voxel_features[:, :, :3], 2, 2,
-                                     keepdim=True)
+            points_dist = torch.norm(voxel_features[:, :, :3], 2, 2, keepdim=True)
             features.append(points_dist)
         features = torch.cat(features, dim=-1)
 
         voxel_count = features.shape[1]
-        mask = self.get_paddings_indicator(voxel_num_points, voxel_count,
-                                           axis=0)
+        mask = self.get_paddings_indicator(voxel_num_points, voxel_count, axis=0)
         mask = torch.unsqueeze(mask, -1).type_as(voxel_features)
         features *= mask
         for pfn in self.pfn_layers:
             features = pfn(features)
         features = features.squeeze()
-        batch_dict['pillar_features'] = features
+        batch_dict["pillar_features"] = features
 
         return batch_dict

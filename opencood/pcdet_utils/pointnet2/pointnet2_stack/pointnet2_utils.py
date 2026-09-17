@@ -8,10 +8,16 @@ from opencood.pcdet_utils.pointnet2.pointnet2_stack import (
 
 
 class BallQuery(Function):
-
     @staticmethod
-    def forward(ctx, radius: float, nsample: int, xyz: torch.Tensor, xyz_batch_cnt: torch.Tensor,
-                new_xyz: torch.Tensor, new_xyz_batch_cnt):
+    def forward(
+        ctx,
+        radius: float,
+        nsample: int,
+        xyz: torch.Tensor,
+        xyz_batch_cnt: torch.Tensor,
+        new_xyz: torch.Tensor,
+        new_xyz_batch_cnt,
+    ):
         """
         Args:
             ctx:
@@ -34,8 +40,10 @@ class BallQuery(Function):
         M = new_xyz.shape[0]
         idx = torch.cuda.IntTensor(M, nsample).zero_()
 
-        pointnet2.ball_query_wrapper(B, M, radius, nsample, new_xyz, new_xyz_batch_cnt, xyz, xyz_batch_cnt, idx)
-        empty_ball_mask = (idx[:, 0] == -1)
+        pointnet2.ball_query_wrapper(
+            B, M, radius, nsample, new_xyz, new_xyz_batch_cnt, xyz, xyz_batch_cnt, idx
+        )
+        empty_ball_mask = idx[:, 0] == -1
         idx[empty_ball_mask] = 0
         return idx, empty_ball_mask
 
@@ -48,10 +56,14 @@ ball_query = BallQuery.apply
 
 
 class GroupingOperation(Function):
-
     @staticmethod
-    def forward(ctx, features: torch.Tensor, features_batch_cnt: torch.Tensor,
-                idx: torch.Tensor, idx_batch_cnt: torch.Tensor):
+    def forward(
+        ctx,
+        features: torch.Tensor,
+        features_batch_cnt: torch.Tensor,
+        idx: torch.Tensor,
+        idx_batch_cnt: torch.Tensor,
+    ):
         """
         Args:
             ctx:
@@ -68,17 +80,23 @@ class GroupingOperation(Function):
         assert idx.is_contiguous()
         assert idx_batch_cnt.is_contiguous()
 
-        assert features.shape[0] == features_batch_cnt.sum(), \
-            'features: %s, features_batch_cnt: %s' % (str(features.shape), str(features_batch_cnt))
-        assert idx.shape[0] == idx_batch_cnt.sum(), \
-            'idx: %s, idx_batch_cnt: %s' % (str(idx.shape), str(idx_batch_cnt))
+        assert features.shape[0] == features_batch_cnt.sum(), (
+            "features: %s, features_batch_cnt: %s"
+            % (str(features.shape), str(features_batch_cnt))
+        )
+        assert idx.shape[0] == idx_batch_cnt.sum(), "idx: %s, idx_batch_cnt: %s" % (
+            str(idx.shape),
+            str(idx_batch_cnt),
+        )
 
         M, nsample = idx.size()
         N, C = features.size()
         B = idx_batch_cnt.shape[0]
         output = torch.cuda.FloatTensor(M, C, nsample)
 
-        pointnet2.group_points_wrapper(B, M, C, nsample, features, features_batch_cnt, idx, idx_batch_cnt, output)
+        pointnet2.group_points_wrapper(
+            B, M, C, nsample, features, features_batch_cnt, idx, idx_batch_cnt, output
+        )
 
         ctx.for_backwards = (B, N, idx, features_batch_cnt, idx_batch_cnt)
         return output
@@ -99,8 +117,18 @@ class GroupingOperation(Function):
         grad_features = Variable(torch.cuda.FloatTensor(N, C).zero_())
 
         grad_out_data = grad_out.data.contiguous()
-        pointnet2.group_points_grad_wrapper(B, M, C, N, nsample, grad_out_data, idx,
-                                            idx_batch_cnt, features_batch_cnt, grad_features.data)
+        pointnet2.group_points_grad_wrapper(
+            B,
+            M,
+            C,
+            N,
+            nsample,
+            grad_out_data,
+            idx,
+            idx_batch_cnt,
+            features_batch_cnt,
+            grad_features.data,
+        )
         return grad_features, None, None, None
 
 
@@ -118,9 +146,14 @@ class QueryAndGroup(nn.Module):
         super().__init__()
         self.radius, self.nsample, self.use_xyz = radius, nsample, use_xyz
 
-    def forward(self, xyz: torch.Tensor, xyz_batch_cnt: torch.Tensor,
-                new_xyz: torch.Tensor, new_xyz_batch_cnt: torch.Tensor,
-                features: torch.Tensor = None):
+    def forward(
+        self,
+        xyz: torch.Tensor,
+        xyz_batch_cnt: torch.Tensor,
+        new_xyz: torch.Tensor,
+        new_xyz_batch_cnt: torch.Tensor,
+        features: torch.Tensor = None,
+    ):
         """
         Args:
             xyz: (N1 + N2 ..., 3) xyz coordinates of the features
@@ -132,26 +165,41 @@ class QueryAndGroup(nn.Module):
         Returns:
             new_features: (M1 + M2, C, nsample) tensor
         """
-        assert xyz.shape[0] == xyz_batch_cnt.sum(), 'xyz: %s, xyz_batch_cnt: %s' % (str(xyz.shape), str(new_xyz_batch_cnt))
-        assert new_xyz.shape[0] == new_xyz_batch_cnt.sum(), \
-            'new_xyz: %s, new_xyz_batch_cnt: %s' % (str(new_xyz.shape), str(new_xyz_batch_cnt))
+        assert xyz.shape[0] == xyz_batch_cnt.sum(), "xyz: %s, xyz_batch_cnt: %s" % (
+            str(xyz.shape),
+            str(new_xyz_batch_cnt),
+        )
+        assert new_xyz.shape[0] == new_xyz_batch_cnt.sum(), (
+            "new_xyz: %s, new_xyz_batch_cnt: %s"
+            % (str(new_xyz.shape), str(new_xyz_batch_cnt))
+        )
 
         # idx: (M1 + M2 ..., nsample), empty_ball_mask: (M1 + M2 ...)
-        idx, empty_ball_mask = ball_query(self.radius, self.nsample, xyz, xyz_batch_cnt, new_xyz, new_xyz_batch_cnt)
-        grouped_xyz = grouping_operation(xyz, xyz_batch_cnt, idx, new_xyz_batch_cnt)  # (M1 + M2, 3, nsample)
+        idx, empty_ball_mask = ball_query(
+            self.radius, self.nsample, xyz, xyz_batch_cnt, new_xyz, new_xyz_batch_cnt
+        )
+        grouped_xyz = grouping_operation(
+            xyz, xyz_batch_cnt, idx, new_xyz_batch_cnt
+        )  # (M1 + M2, 3, nsample)
         grouped_xyz -= new_xyz.unsqueeze(-1)
 
         grouped_xyz[empty_ball_mask] = 0
 
         if features is not None:
-            grouped_features = grouping_operation(features, xyz_batch_cnt, idx, new_xyz_batch_cnt)  # (M1 + M2, C, nsample)
+            grouped_features = grouping_operation(
+                features, xyz_batch_cnt, idx, new_xyz_batch_cnt
+            )  # (M1 + M2, C, nsample)
             grouped_features[empty_ball_mask] = 0
             if self.use_xyz:
-                new_features = torch.cat([grouped_xyz, grouped_features], dim=1)  # (M1 + M2 ..., C + 3, nsample)
+                new_features = torch.cat(
+                    [grouped_xyz, grouped_features], dim=1
+                )  # (M1 + M2 ..., C + 3, nsample)
             else:
                 new_features = grouped_features
         else:
-            assert self.use_xyz, "Cannot have not features and not use xyz as a feature!"
+            assert self.use_xyz, (
+                "Cannot have not features and not use xyz as a feature!"
+            )
             new_features = grouped_xyz
 
         return new_features, idx
@@ -209,8 +257,12 @@ class ThreeNN(Function):
         idx = unknown_batch_cnt.new_zeros(unknown.shape).int()
 
         pointnet2.three_nn_wrapper(
-            unknown.contiguous(), unknown_batch_cnt.contiguous(),
-            known.contiguous(), known_batch_cnt.contiguous(), dist2, idx
+            unknown.contiguous(),
+            unknown_batch_cnt.contiguous(),
+            known.contiguous(),
+            known_batch_cnt.contiguous(),
+            dist2,
+            idx,
         )
         return torch.sqrt(dist2), idx
 
@@ -223,7 +275,6 @@ three_nn = ThreeNN.apply
 
 
 class ThreeInterpolate(Function):
-
     @staticmethod
     def forward(ctx, features: torch.Tensor, idx: torch.Tensor, weight: torch.Tensor):
         """
@@ -240,7 +291,9 @@ class ThreeInterpolate(Function):
 
         ctx.three_interpolate_for_backward = (idx, weight, features.shape[0])
         output = features.new_zeros((idx.shape[0], features.shape[1]))
-        pointnet2.three_interpolate_wrapper(features.contiguous(), idx.contiguous(), weight.contiguous(), output)
+        pointnet2.three_interpolate_wrapper(
+            features.contiguous(), idx.contiguous(), weight.contiguous(), output
+        )
         return output
 
     @staticmethod
@@ -264,5 +317,5 @@ class ThreeInterpolate(Function):
 three_interpolate = ThreeInterpolate.apply
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pass
