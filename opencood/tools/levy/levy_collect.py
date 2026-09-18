@@ -25,6 +25,7 @@ from opencood.models.fuse_modules.levy_pyramid_fuse import (
     overlap_masked_stats,
 )
 from opencood.utils import common_utils
+from opencood.utils.transformation_utils import x1_to_x2
 
 # Per-level maps reduced / sampled when present in ``per_scale[l]``.
 LEVEL_KEYS = (
@@ -118,6 +119,31 @@ def match_boxes(pred_box, pred_score, gt_box, iou_thresholds=IOU_THRESHOLDS):
     return best_iou, tp
 
 
+def pose_misalignment(batch_data, n_agents):
+    """
+    Ego-frame misalignment of every collaborator under pose noise.
+
+    Returns a list of 4x4 ``E_j = T_noisy @ inv(T_clean)``, one per collaborator
+    j = 1..n_agents-1, where T maps agent j into the ego frame. A point that agent
+    j sees at ego-frame location p (clean) is fused at ``E_j p``, so
+    ``||(E_j - I) p||`` is the feature displacement there. Empty when the batch
+    carries no clean poses or there is a single agent.
+    """
+    ego = batch_data["ego"]
+    if "lidar_pose" not in ego or "lidar_pose_clean" not in ego:
+        return []
+    noisy = common_utils.torch_tensor_to_numpy(ego["lidar_pose"]).astype(np.float64)
+    clean = common_utils.torch_tensor_to_numpy(ego["lidar_pose_clean"]).astype(
+        np.float64
+    )
+    errors = []
+    for j in range(1, min(n_agents, len(noisy))):
+        t_noisy = x1_to_x2(noisy[j], noisy[0])
+        t_clean = x1_to_x2(clean[j], clean[0])
+        errors.append(t_noisy @ np.linalg.inv(t_clean))
+    return errors
+
+
 def _cell_index(xy, pc_range, hw):
     """Row / column of ego-frame points on a BEV grid spanning ``pc_range``."""
     H, W = hw
@@ -178,6 +204,15 @@ class LevyRecorder:
                 "n_gt": n_gt,
             }
         )
+        misalignment = pose_misalignment(batch_data, frame_row["n_agents"])
+        if misalignment:
+            frame_row["pose_err_xy"] = max(
+                float(np.hypot(e[0, 3], e[1, 3])) for e in misalignment
+            )
+            frame_row["pose_err_yaw"] = max(
+                abs(float(np.degrees(np.arctan2(e[1, 0], e[0, 0]))))
+                for e in misalignment
+            )
         for thresh in IOU_THRESHOLDS:
             n_tp = int(tp[thresh].sum())
             tag = int(round(thresh * 100))
@@ -217,6 +252,15 @@ class LevyRecorder:
             for key in LEVEL_KEYS:
                 if key in maps:
                     columns[f"L{level}_{key}"] = _sample(maps[key], xy, self.pc_range)
+        if misalignment:
+            points = np.concatenate([xy, np.zeros((n_pred, 1)), np.ones((n_pred, 1))], 1)
+            columns["pose_disp"] = np.max(
+                [
+                    np.linalg.norm(((e - np.eye(4)) @ points.T)[:2], axis=0)
+                    for e in misalignment
+                ],
+                axis=0,
+            )
         columns["fused_n_valid"] = _sample(uncertainty["n_valid"], xy, self.pc_range)
         for key in FUSED_KEYS:
             if uncertainty.get(key) is not None:

@@ -95,6 +95,14 @@ def test_parser():
         "fusion_backbone.core_method: levy_pyramid)",
     )
     parser.add_argument(
+        "--pose_noise",
+        type=str,
+        default=None,
+        help="list of Gaussian pose-noise std, e.g. [0.2,0.4,0.6]; each value is "
+        "used as both pos_std (m) and rot_std (deg) with zero mean, as in "
+        "inference_w_noise.py. Every agent's pose is perturbed (seed 303 per level)",
+    )
+    parser.add_argument(
         "--measure_perf",
         action="store_true",
         help="measure inference FPS and peak GPU memory, save results to model_dir",
@@ -248,8 +256,29 @@ def main():
         lidar_dict0 = {"m3": 32}
         use_cav_and_lidar_config_pair = [(x, lidar_dict0) for x in eval(opt.use_cav)]
 
-    for use_cav, lidar_config in use_cav_and_lidar_config_pair:
+    noise_levels = [None] if opt.pose_noise is None else eval(opt.pose_noise)
+    settings = [
+        (use_cav, lidar_config, noise)
+        for use_cav, lidar_config in use_cav_and_lidar_config_pair
+        for noise in noise_levels
+    ]
+
+    for use_cav, lidar_config, noise in settings:
         hypes["use_cav"] = use_cav
+        if noise is None:
+            hypes.pop("noise_setting", None)
+        else:
+            np.random.seed(303)
+            hypes["noise_setting"] = OrderedDict(
+                add_noise=True,
+                args={
+                    "pos_std": noise,
+                    "rot_std": noise,
+                    "pos_mean": 0,
+                    "rot_mean": 0,
+                },
+            )
+            print(f"Pose noise: pos_std={noise} m, rot_std={noise} deg")
         if lidar_config is not None:
             hypes["heter"]["lidar_channels_dict"] = lidar_config
             print(hypes["heter"]["lidar_channels_dict"])
@@ -264,12 +293,14 @@ def main():
             )
 
         opencood_dataset.force_all_same_agent_modality = True
+        # Only the DataLoader iterates the Subset; post-processing needs the dataset.
+        loader_dataset = opencood_dataset
         if opt.dataset_subset:
             print("Using Subset of DATASET!")
-            opencood_dataset = Subset(opencood_dataset, range(1200, 1305))
+            loader_dataset = Subset(opencood_dataset, range(1200, 1305))
 
         data_loader = DataLoader(
-            opencood_dataset,
+            loader_dataset,
             batch_size=1,
             num_workers=4,
             collate_fn=opencood_dataset.collate_batch_test,
@@ -286,6 +317,8 @@ def main():
         }
 
         infer_info = opt.fusion_method + opt.note + f"_use_cav{use_cav}"
+        if noise is not None:
+            infer_info += f"_noise{noise}_{noise}_0_0"
         if opt.lidar_degrade:
             infer_info += f"_m1_{lidar_config['m1']}_m3_{lidar_config['m3']}"
 
@@ -406,7 +439,7 @@ def main():
                         levy_recorder,
                         levy_fusion,
                         frame=i,
-                        dataset=opencood_dataset,
+                        dataset=loader_dataset,
                         use_cav=use_cav,
                         batch_data=batch_data,
                         infer_result=infer_result,
