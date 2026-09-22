@@ -27,7 +27,8 @@ from torch.utils.data import DataLoader, Subset
 
 from opencood.data_utils.datasets import build_dataset
 from opencood.hypes_yaml import yaml_utils
-from opencood.tools import inference_utils, levy_collect, train_utils
+from opencood.tools import inference_utils, train_utils
+from opencood.tools.levy import levy_collect
 from opencood.utils import eval_utils
 from opencood.utils.common_utils import update_dict
 from opencood.utils.perf_utils import PerfProfiler

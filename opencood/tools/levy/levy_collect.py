@@ -89,7 +89,12 @@ def match_boxes(pred_box, pred_score, gt_box, iou_thresholds=IOU_THRESHOLDS):
     """
     n_pred = 0 if pred_box is None else pred_box.shape[0]
     if n_pred == 0:
-        return np.zeros(0), {t: np.zeros(0, dtype=int) for t in iou_thresholds}
+        n_gt_ = 0 if gt_box is None else gt_box.shape[0]
+        return (
+            np.zeros(0),
+            {t: np.zeros(0, dtype=int) for t in iou_thresholds},
+            {t: np.zeros(n_gt_, dtype=int) for t in iou_thresholds},
+        )
 
     det_polygons = list(
         common_utils.convert_format(common_utils.torch_tensor_to_numpy(pred_box))
@@ -99,24 +104,36 @@ def match_boxes(pred_box, pred_score, gt_box, iou_thresholds=IOU_THRESHOLDS):
     )
     order = np.argsort(-common_utils.torch_tensor_to_numpy(pred_score))
 
-    best_iou = np.zeros(n_pred)
-    if gt_polygons:
+    # One IoU matrix per frame, reused for every threshold. Polygon IoU is the
+    # expensive part and does not depend on the matching order, so recomputing
+    # it per threshold dominated runtime once a low score threshold left many
+    # predictions standing.
+    n_gt = len(gt_polygons)
+    iou = np.zeros((n_pred, n_gt))
+    if n_gt:
         for k in range(n_pred):
-            best_iou[k] = np.max(common_utils.compute_iou(det_polygons[k], gt_polygons))
+            iou[k] = common_utils.compute_iou(det_polygons[k], gt_polygons)
+    best_iou = iou.max(axis=1) if n_gt else np.zeros(n_pred)
 
-    tp = {}
+    tp, gt_hit = {}, {}
     for thresh in iou_thresholds:
         flags = np.zeros(n_pred, dtype=int)
-        remaining = list(gt_polygons)
+        hit = np.zeros(n_gt, dtype=int)
+        # `free` replaces popping from a list: same greedy order, but the GT
+        # index survives so a per-GT detected/missed flag falls out of the pass.
+        free = np.ones(n_gt, dtype=bool)
         for k in order:
-            if not remaining:
+            if not free.any():
                 break
-            ious = common_utils.compute_iou(det_polygons[k], remaining)
-            if np.max(ious) >= thresh:
+            row = np.where(free, iou[k], -1.0)
+            j = int(np.argmax(row))
+            if row[j] >= thresh:
                 flags[k] = 1
-                remaining.pop(int(np.argmax(ious)))
+                hit[j] = 1
+                free[j] = False
         tp[thresh] = flags
-    return best_iou, tp
+        gt_hit[thresh] = hit
+    return best_iou, tp, gt_hit
 
 
 def pose_misalignment(batch_data, n_agents):
@@ -180,6 +197,14 @@ class LevyRecorder:
         self.pc_range = pc_range
         self.frames = []
         self.boxes = []
+        # One row per GROUND-TRUTH box, for false-negative analysis: a missed
+        # object has no prediction, so it cannot appear in self.boxes.
+        self.gt = []
+        # Corner geometry per frame, so that a re-ranking experiment can redo the
+        # greedy matching instead of reusing TP flags that were assigned in the
+        # original score order (a different order can hand a GT box to a
+        # different prediction).
+        self.geometry = {}
 
     def add(self, frame, dataset, use_cav, batch_data, infer_result, uncertainty):
         pred_box = infer_result["pred_box_tensor"]
@@ -187,7 +212,18 @@ class LevyRecorder:
         gt_box = infer_result["gt_box_tensor"]
         n_pred = 0 if pred_box is None else int(pred_box.shape[0])
         n_gt = 0 if gt_box is None else int(gt_box.shape[0])
-        best_iou, tp = match_boxes(pred_box, pred_score, gt_box)
+        best_iou, tp, gt_hit = match_boxes(pred_box, pred_score, gt_box)
+
+        self.geometry[f"pred_{frame}"] = (
+            np.zeros((0, 8, 3), dtype=np.float32)
+            if pred_box is None
+            else common_utils.torch_tensor_to_numpy(pred_box).astype(np.float32)
+        )
+        self.geometry[f"gt_{frame}"] = (
+            np.zeros((0, 8, 3), dtype=np.float32)
+            if gt_box is None
+            else common_utils.torch_tensor_to_numpy(gt_box).astype(np.float32)
+        )
 
         scenario, timestamp = frame_identity(dataset, frame)
         modalities = batch_data["ego"].get("agent_modality_list", [])
@@ -240,6 +276,45 @@ class LevyRecorder:
                 _reduce(f"fused_{key}", uncertainty[key], fused_mask, frame_row)
         self.frames.append(frame_row)
 
+        if n_gt > 0:
+            gt_xy = common_utils.torch_tensor_to_numpy(gt_box).mean(axis=1)[:, :2]
+            gt_cols = {}
+            for level, maps in enumerate(uncertainty["per_scale"]):
+                gt_cols[f"L{level}_n_valid"] = _sample(
+                    maps["n_valid"], gt_xy, self.pc_range
+                )
+                for key in LEVEL_KEYS:
+                    if key in maps:
+                        gt_cols[f"L{level}_{key}"] = _sample(
+                            maps[key], gt_xy, self.pc_range
+                        )
+            gt_cols["fused_n_valid"] = _sample(
+                uncertainty["n_valid"], gt_xy, self.pc_range
+            )
+            for key in FUSED_KEYS:
+                if uncertainty.get(key) is not None:
+                    gt_cols[f"fused_{key}"] = _sample(
+                        uncertainty[key], gt_xy, self.pc_range
+                    )
+            for g in range(n_gt):
+                row = dict(identity)
+                row.update(
+                    {
+                        "gt_id": g,
+                        "x": float(gt_xy[g, 0]),
+                        "y": float(gt_xy[g, 1]),
+                        "dist": float(np.hypot(gt_xy[g, 0], gt_xy[g, 1])),
+                        "n_pred": n_pred,
+                    }
+                )
+                for thresh in IOU_THRESHOLDS:
+                    row[f"hit{round(thresh * 100)}"] = int(gt_hit[thresh][g])
+                for name, values in gt_cols.items():
+                    row[name] = (
+                        int(values[g]) if name.endswith("n_valid") else float(values[g])
+                    )
+                self.gt.append(row)
+
         if n_pred == 0:
             return
 
@@ -253,7 +328,9 @@ class LevyRecorder:
                 if key in maps:
                     columns[f"L{level}_{key}"] = _sample(maps[key], xy, self.pc_range)
         if misalignment:
-            points = np.concatenate([xy, np.zeros((n_pred, 1)), np.ones((n_pred, 1))], 1)
+            points = np.concatenate(
+                [xy, np.zeros((n_pred, 1)), np.ones((n_pred, 1))], 1
+            )
             columns["pose_disp"] = np.max(
                 [
                     np.linalg.norm(((e - np.eye(4)) @ points.T)[:2], axis=0)
@@ -286,9 +363,19 @@ class LevyRecorder:
             self.boxes.append(box_row)
 
     def write(self, path_prefix):
-        """Write ``<prefix>_frames.csv`` and ``<prefix>_boxes.csv``."""
+        """Write ``<prefix>_frames.csv``, ``<prefix>_boxes.csv`` and geometry."""
         written = []
-        for suffix, rows in (("frames", self.frames), ("boxes", self.boxes)):
+        if self.geometry:
+            path = f"{path_prefix}_geometry.npz"
+            np.savez_compressed(path, **self.geometry)
+            written.append(path)
+        for suffix, rows in (
+            ("frames", self.frames),
+            ("boxes", self.boxes),
+            ("gt", self.gt),
+        ):
+            if not rows:
+                continue
             path = f"{path_prefix}_{suffix}.csv"
             fieldnames = list(dict.fromkeys(key for row in rows for key in row))
             with open(path, "w", newline="") as f:

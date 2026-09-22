@@ -30,7 +30,8 @@ Example
 import torch
 
 from opencood.models.fuse_modules import levy_pyramid_fuse as lpf
-from opencood.tools import inference_heter_in_order, levy_collect
+from opencood.tools import inference_heter_in_order
+from opencood.tools.levy import levy_collect
 
 EXTRA_KEYS = ("fg_ego", "fg_col", "fg_nval")
 _stash = []

@@ -27,7 +27,8 @@ import math
 import torch
 
 from opencood.models.fuse_modules import levy_pyramid_fuse as lpf
-from opencood.tools import inference_heter_in_order, levy_collect
+from opencood.tools import inference_heter_in_order
+from opencood.tools.levy import levy_collect
 
 EXTRA_KEYS = ("cd_balance", "cd_gap", "cd_norm_ego", "cd_norm_col", "cd_p_col")
 _stash = []

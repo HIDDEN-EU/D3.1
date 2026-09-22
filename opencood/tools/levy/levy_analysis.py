@@ -5,7 +5,11 @@ Error-ranking analysis of Levy trust signals, from the CSVs written by
 Box level (one row per predicted box):
     AUSE and Spearman rho of every signal against a per-box error, restricted to
     boxes whose centre lies in the overlap region (``--mask_col >= --min_valid``),
-    overall and per ``use_cav`` / per mask value.
+    overall and per ``use_cav`` / per mask value. Each signal is also scored
+    *within* the quantile cells of ``--cond_cols`` (score and distance deciles by
+    default, separately and jointly), which is the check that separates a signal
+    carrying its own information from one restating what score or range already
+    says -- the latter beats random unconditionally and collapses to chance here.
 Frame level (one row per frame):
     triage -- flag the ``--flag_frac`` least-trusted frames by a frame signal and
     report their excess error over all frames.
@@ -68,6 +72,25 @@ def parser():
     )
     p.add_argument("--steps", type=int, default=100, help="sparsification steps")
     p.add_argument(
+        "--cond_cols",
+        nargs="*",
+        default=["score", "dist"],
+        help="condition the ranking on each of these box columns and on their "
+        "joint quantile grid; pass nothing to skip the conditional columns",
+    )
+    p.add_argument(
+        "--cond_bins",
+        type=int,
+        default=10,
+        help="quantile bins per conditioning column (10 = deciles)",
+    )
+    p.add_argument(
+        "--cond_min",
+        type=int,
+        default=20,
+        help="skip joint-grid cells holding fewer boxes than this",
+    )
+    p.add_argument(
         "--frame_signals",
         nargs="*",
         default=None,
@@ -114,6 +137,84 @@ def spearman(a, b):
     if ra.std() == 0 or rb.std() == 0:
         return math.nan
     return float(np.corrcoef(ra, rb)[0, 1])
+
+
+def auroc(values, labels):
+    """P(signal ranks a positive above a negative), ties counted as half."""
+    positive = labels > 0
+    n_pos = int(positive.sum())
+    n_neg = len(labels) - n_pos
+    if n_pos == 0 or n_neg == 0:
+        return math.nan
+    ranks = rankdata(values)  # 0-based average ranks
+    return float((ranks[positive].sum() - n_pos * (n_pos - 1) / 2) / (n_pos * n_neg))
+
+
+def quantile_bins(values, n_bins):
+    """Quantile-bin index of each value; non-finite values get -1."""
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return np.full(len(values), -1, dtype=np.int64)
+    # Ties collapse edges, so a heavily tied column yields fewer than n_bins.
+    edges = np.unique(np.quantile(finite, np.linspace(0, 1, n_bins + 1)[1:-1]))
+    bins = np.searchsorted(edges, values, side="right").astype(np.int64)
+    bins[~np.isfinite(values)] = -1
+    return bins
+
+
+def joint_bins(rows, cols, n_bins):
+    """
+    Cell index of the joint quantile grid over ``cols`` (e.g. the 10x10 score x
+    distance deciles); -1 wherever any of the columns is missing.
+    """
+    codes = np.zeros(len(rows), dtype=np.int64)
+    for col in cols:
+        values = np.array([r.get(col, math.nan) for r in rows], dtype=float)
+        bins = quantile_bins(values, n_bins)
+        codes = np.where(
+            (codes < 0) | (bins < 0), -1, codes * (n_bins + 1) + np.maximum(bins, 0)
+        )
+    return codes
+
+
+def conditional_association(values, error, strata, min_size, binary):
+    """
+    Within-stratum association between signal and error, averaged over strata
+    and weighted by stratum size.
+
+    This is what separates a signal carrying its own information from one that
+    merely restates the conditioning variables: a signal whose unconditional
+    ranking comes from being a proxy for score or distance collapses to chance
+    here, while a weaker but complementary signal holds its value.
+
+    Strata smaller than ``min_size``, or with no variation in the signal or the
+    error, are skipped -- an all-TP score decile says nothing about ranking.
+    """
+    rho_sum = auc_sum = weight = 0.0
+    n_strata = 0
+    for code in np.unique(strata):
+        if code < 0:
+            continue
+        keep = strata == code
+        if keep.sum() < min_size:
+            continue
+        v, e = values[keep], error[keep]
+        if v.std() == 0 or e.std() == 0:
+            continue
+        w = float(keep.sum())
+        rho_sum += spearman(v, e) * w
+        if binary:
+            auc_sum += auroc(v, e) * w
+        weight += w
+        n_strata += 1
+    if weight == 0:
+        return {"rho": math.nan, "auroc": math.nan, "n": 0, "n_strata": 0}
+    return {
+        "rho": rho_sum / weight,
+        "auroc": auc_sum / weight if binary else math.nan,
+        "n": int(weight),
+        "n_strata": n_strata,
+    }
 
 
 def sparsification_curve(error, uncertainty, steps):
@@ -171,8 +272,15 @@ def signal_values(rows, name):
     return values
 
 
-def rank_boxes(rows, signals, kind, steps):
+def rank_boxes(rows, signals, kind, steps, conditions=(), n_bins=10, min_size=20):
+    """
+    AUSE / Spearman of each signal against the per-box error, plus -- for every
+    tuple of columns in ``conditions`` -- the same association taken within the
+    cells of those columns' joint quantile grid.
+    """
     error = box_error(rows, kind)
+    binary = kind != "iou"
+    strata = {cols: joint_bins(rows, cols, n_bins) for cols in conditions}
     results = {}
     for name in signals:
         values = signal_values(rows, name)
@@ -185,6 +293,13 @@ def rank_boxes(rows, signals, kind, steps):
             "spearman": spearman(values[keep], error[keep]),
             "ause": a["ause"],
             "ause_random": a["ause_random"],
+            "auroc": auroc(values[keep], error[keep]) if binary else math.nan,
+            "conditional": {
+                "+".join(cols): conditional_association(
+                    values[keep], error[keep], codes[keep], min_size, binary
+                )
+                for cols, codes in strata.items()
+            },
         }
     return results
 
@@ -215,17 +330,26 @@ def triage_frames(rows, signals, flag_frac):
     return results
 
 
-def print_box_table(title, results):
+def print_box_table(title, results, binary=False):
     print(f"\n{title}")
     if not results:
         print("  (not enough boxes)")
         return
-    print(f"  {'signal':<34}{'n':>7}{'rho':>8}{'AUSE':>9}{'AUSE_rnd':>10}")
+    first = next(iter(results.values()))
+    conditions = list(first["conditional"])
+    stat = "AUC" if binary else "rho"
+    header = f"  {'signal':<34}{'n':>7}{'rho':>8}{'AUSE':>9}{'AUSE_rnd':>10}"
+    header += "".join(f"{stat + '|' + c:>16}" for c in conditions)
+    print(header)
     for name, r in sorted(results.items(), key=lambda kv: kv[1]["ause"]):
-        print(
+        line = (
             f"  {name:<34}{r['n']:>7}{r['spearman']:>8.3f}"
             f"{r['ause']:>9.4f}{r['ause_random']:>10.4f}"
         )
+        for cond in conditions:
+            value = r["conditional"][cond]["auroc" if binary else "rho"]
+            line += f"{value:>16.3f}" if math.isfinite(value) else f"{'--':>16}"
+        print(line)
 
 
 def main():
@@ -239,6 +363,28 @@ def main():
         signals = [c for c in boxes[0] if SIGNAL_PATTERN.match(c)] if boxes else []
         signals += list(BASELINES)
 
+    missing = [c for c in opt.cond_cols if boxes and c not in boxes[0]]
+    if missing:
+        raise KeyError(f"conditioning columns {missing} not in {opt.boxes}")
+    # Each column on its own, then -- with more than one -- their joint grid: a
+    # signal can beat score alone by carrying distance and still add nothing
+    # over the two together.
+    conditions = [(c,) for c in opt.cond_cols]
+    if len(opt.cond_cols) > 1:
+        conditions.append(tuple(opt.cond_cols))
+    binary = opt.error != "iou"
+
+    def rank(group):
+        return rank_boxes(
+            group,
+            signals,
+            opt.error,
+            opt.steps,
+            conditions=tuple(conditions),
+            n_bins=opt.cond_bins,
+            min_size=opt.cond_min,
+        )
+
     overlap = [r for r in boxes if r[opt.mask_col] >= opt.min_valid]
     print(
         f"{len(overlap)}/{len(boxes)} boxes with {opt.mask_col} >= {opt.min_valid}; "
@@ -246,17 +392,27 @@ def main():
     )
     print("AUSE: lower is better; AUSE_rnd is random removal (0 = oracle).")
     print("rho: Spearman(signal, error); evidence is negated (more evidence = trust).")
+    if conditions:
+        stat = "AUC" if binary else "rho"
+        print(
+            f"{stat}|cols: the same association within the cells of those columns' "
+            f"{opt.cond_bins}-bin quantile grid, weighted by cell size "
+            f"({'0.5' if binary else '0'} = no information the cell does not "
+            "already hold)."
+        )
 
     output = {"boxes": {}, "frames": {}}
-    output["boxes"]["all"] = rank_boxes(overlap, signals, opt.error, opt.steps)
-    print_box_table("All overlap boxes", output["boxes"]["all"])
+    output["boxes"]["all"] = rank(overlap)
+    print_box_table("All overlap boxes", output["boxes"]["all"], binary)
 
     for col, label in ((opt.mask_col, opt.mask_col), ("use_cav", "use_cav")):
         for value in sorted({r[col] for r in overlap}):
             group = [r for r in overlap if r[col] == value]
             key = f"{label}={int(value)}"
-            output["boxes"][key] = rank_boxes(group, signals, opt.error, opt.steps)
-            print_box_table(f"{key}  ({len(group)} boxes)", output["boxes"][key])
+            output["boxes"][key] = rank(group)
+            print_box_table(
+                f"{key}  ({len(group)} boxes)", output["boxes"][key], binary
+            )
 
     if opt.frames:
         frames = load_csv(opt.frames)
