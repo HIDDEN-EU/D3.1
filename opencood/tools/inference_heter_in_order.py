@@ -28,7 +28,7 @@ from torch.utils.data import DataLoader, Subset
 from opencood.data_utils.datasets import build_dataset
 from opencood.hypes_yaml import yaml_utils
 from opencood.tools import inference_utils, train_utils
-from opencood.tools.levy import levy_collect
+from opencood.tools.levy import levy_agent_dev, levy_cells, levy_collect, levy_proposals
 from opencood.utils import eval_utils
 from opencood.utils.common_utils import update_dict
 from opencood.utils.perf_utils import PerfProfiler
@@ -113,6 +113,30 @@ def test_parser():
         type=bool,
         default=False,
         help="whether to use subset for dataset eval",
+    )
+    parser.add_argument(
+        "--save_cells",
+        action="store_true",
+        help="also write sampled per-BEV-cell rows (vehicle vs background) to "
+        "model_dir/levy_<info>_cells.npz; implies --save_levy",
+    )
+    parser.add_argument(
+        "--save_agent_dev",
+        action="store_true",
+        help="dump per-agent deviations at cells with 3+ contributing agents to "
+        "model_dir/levy_<info>_agentdev.npz; needs levy.agent_deviation: true",
+    )
+    parser.add_argument(
+        "--save_proposals",
+        action="store_true",
+        help="turn the Levy vehicle mask into boxes where no detection was made and "
+        "write them to model_dir/levy_<info>_proposals.npz; implies --save_levy",
+    )
+    parser.add_argument(
+        "--max_frames",
+        type=int,
+        default=None,
+        help="only run the first N frames (quick sanity run)",
     )
     opt = parser.parse_args()
     return opt
@@ -207,6 +231,8 @@ def main():
     model.eval()
 
     levy_fusion = None
+    if opt.save_cells or opt.save_proposals or opt.save_agent_dev:
+        opt.save_levy = True
     if opt.save_levy:
         levy_fusion = levy_collect.get_levy_fusion(model)
         if opt.fusion_method != "intermediate" or levy_fusion is None:
@@ -299,6 +325,11 @@ def main():
         if opt.dataset_subset:
             print("Using Subset of DATASET!")
             loader_dataset = Subset(opencood_dataset, range(1200, 1305))
+        if opt.max_frames is not None:
+            print(f"Using only the first {opt.max_frames} frames!")
+            loader_dataset = Subset(
+                loader_dataset, range(min(opt.max_frames, len(loader_dataset)))
+            )
 
         data_loader = DataLoader(
             loader_dataset,
@@ -325,9 +356,40 @@ def main():
 
         levy_recorder = (
             levy_collect.LevyRecorder(
-                hypes["postprocess"]["anchor_args"]["cav_lidar_range"]
+                hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
+                hypes["postprocess"]["gt_range"],
             )
             if levy_fusion is not None
+            else None
+        )
+        agent_dev_recorder = (
+            levy_agent_dev.AgentDeviationRecorder(
+                hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
+                hypes["postprocess"]["gt_range"],
+            )
+            if levy_fusion is not None and opt.save_agent_dev
+            else None
+        )
+        score_hook = (
+            levy_cells.ScoreMapHook(model)
+            if levy_fusion is not None and opt.save_cells
+            else None
+        )
+        proposal_recorder = (
+            levy_proposals.ProposalRecorder(
+                hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
+                hypes["postprocess"]["gt_range"],
+                hypes["postprocess"]["anchor_args"],
+            )
+            if levy_fusion is not None and opt.save_proposals
+            else None
+        )
+        cell_recorder = (
+            levy_cells.CellRecorder(
+                hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
+                hypes["postprocess"]["gt_range"],
+            )
+            if levy_fusion is not None and opt.save_cells
             else None
         )
 
@@ -436,15 +498,21 @@ def main():
                 )
 
                 if levy_recorder is not None:
-                    levy_collect.record_frame(
-                        levy_recorder,
-                        levy_fusion,
+                    kw = dict(
                         frame=i,
                         dataset=loader_dataset,
                         use_cav=use_cav,
                         batch_data=batch_data,
                         infer_result=infer_result,
                     )
+                    levy_collect.record_frame(levy_recorder, levy_fusion, **kw)
+                    if cell_recorder is not None:
+                        levy_cells.record_frame(
+                            cell_recorder, levy_fusion, score_hook=score_hook, **kw)
+                    if proposal_recorder is not None:
+                        levy_proposals.record_frame(proposal_recorder, levy_fusion, **kw)
+                    if agent_dev_recorder is not None:
+                        levy_agent_dev.record_frame(agent_dev_recorder, levy_fusion, **kw)
 
                 if not opt.no_score:
                     infer_result.update({"score_tensor": pred_score})
@@ -527,9 +595,14 @@ def main():
         )
 
         if levy_recorder is not None:
-            for path in levy_recorder.write(
-                os.path.join(opt.model_dir, f"levy_{infer_info}")
-            ):
+            paths = levy_recorder.write(os.path.join(opt.model_dir, f"levy_{infer_info}"))
+            if cell_recorder is not None:
+                paths += cell_recorder.write(os.path.join(opt.model_dir, f"levy_{infer_info}"))
+            if proposal_recorder is not None:
+                paths += proposal_recorder.write(os.path.join(opt.model_dir, f"levy_{infer_info}"))
+            if agent_dev_recorder is not None:
+                paths += agent_dev_recorder.write(os.path.join(opt.model_dir, f"levy_{infer_info}"))
+            for path in paths:
                 print(f"Levy statistics saved to {path}")
 
 

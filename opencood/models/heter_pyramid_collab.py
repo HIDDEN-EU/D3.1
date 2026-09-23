@@ -258,6 +258,12 @@ class HeterPyramidCollab(nn.Module):
             fused_feature = self.shrink_conv(fused_feature)
 
         cls_preds = self.cls_head(fused_feature)
+        # A Levy vehicle mask that uses the detector's own score map can only be
+        # finished now, once the head has run.
+        if getattr(self.pyramid_backbone, "mask_needs_detector", False):
+            self.pyramid_backbone.complete_vehicle_mask(
+                torch.sigmoid(cls_preds.detach()).max(dim=1, keepdim=True).values
+            )
         reg_preds = self.reg_head(fused_feature)
         dir_preds = self.dir_head(fused_feature)
 

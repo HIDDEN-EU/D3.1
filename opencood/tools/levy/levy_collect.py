@@ -9,6 +9,9 @@ Two CSVs per run:
 * boxes: one row per predicted box, with its score, IoU / TP flags and every
   signal sampled at the BEV cell under the box centre.
 
+Only the detection range (``gt_range``) is used: frame statistics reduce over
+overlap mask AND in-range cells, and boxes / GT outside it get no row.
+
 Analyse them with ``opencood/tools/levy_analysis.py``.
 """
 
@@ -37,8 +40,17 @@ LEVEL_KEYS = (
     "sigma_cosine",
     "disagreement_decoded",
 )
-# Combined level-0 maps; 'evidence' is None under combined_mode='decoded'.
-FUSED_KEYS = ("evidence", "disagreement", "sigma")
+# Combined level-0 maps; the evidence keys and aux channels are None / absent
+# under combined_mode='decoded'.
+FUSED_KEYS = (
+    "vehicle_prob",
+    "evidence",
+    "log_evidence",
+    "disagreement",
+    "sigma",
+    "disagreement_cosine",
+    "sigma_cosine",
+)
 STATS = ("mean", "std", "max", "q50", "q90", "q99")
 IOU_THRESHOLDS = (0.3, 0.5, 0.7)
 
@@ -56,7 +68,7 @@ def frame_identity(dataset, idx):
     Returns empty strings when the dataset does not expose ``len_record`` /
     ``scenario_database`` or ``idx`` is out of range.
     """
-    if isinstance(dataset, Subset):
+    while isinstance(dataset, Subset):
         idx = dataset.indices[idx]
         dataset = dataset.dataset
     len_record = getattr(dataset, "len_record", None)
@@ -170,6 +182,31 @@ def _cell_index(xy, pc_range, hw):
     return np.clip(row, 0, H - 1), np.clip(col, 0, W - 1)
 
 
+def in_range_mask(bev_map, pc_range, det_range):
+    """
+    (B, 1, h, w) bool: cells of ``bev_map``'s grid (spanning ``pc_range``) whose
+    centre lies inside the detection range ``det_range``.
+    """
+    h, w = bev_map.shape[-2:]
+    x_min, y_min, _, x_max, y_max, _ = pc_range
+    xs = x_min + (torch.arange(w, device=bev_map.device) + 0.5) * (x_max - x_min) / w
+    ys = y_min + (torch.arange(h, device=bev_map.device) + 0.5) * (y_max - y_min) / h
+    in_x = (xs >= det_range[0]) & (xs <= det_range[3])
+    in_y = (ys >= det_range[1]) & (ys <= det_range[4])
+    mask = in_y[:, None] & in_x[None, :]
+    return mask.expand(bev_map.shape[0], 1, h, w)
+
+
+def points_in_range(xy, det_range):
+    """(N,) bool: ego-frame points inside the detection range."""
+    return (
+        (xy[:, 0] >= det_range[0])
+        & (xy[:, 0] <= det_range[3])
+        & (xy[:, 1] >= det_range[1])
+        & (xy[:, 1] <= det_range[4])
+    )
+
+
 def _sample(bev_map, xy, pc_range):
     """Values of a (B, 1, H, W) map (batch 0) at ego-frame points."""
     grid = bev_map[0, 0].float().cpu().numpy()
@@ -193,8 +230,11 @@ def _reduce(prefix, bev_map, mask, record):
 class LevyRecorder:
     """Accumulates per-frame and per-box rows for one inference setting."""
 
-    def __init__(self, pc_range):
+    def __init__(self, pc_range, det_range=None):
+        # pc_range: extent of the BEV grid; det_range: evaluation range
+        # (gt_range). Nothing outside det_range is recorded.
         self.pc_range = pc_range
+        self.det_range = pc_range if det_range is None else det_range
         self.frames = []
         self.boxes = []
         # One row per GROUND-TRUTH box, for false-negative analysis: a missed
@@ -256,7 +296,9 @@ class LevyRecorder:
             frame_row[f"fp{tag}"] = n_pred - n_tp
 
         for level, maps in enumerate(uncertainty["per_scale"]):
-            mask = maps["overlap_mask"]
+            in_range = in_range_mask(maps["overlap_mask"], self.pc_range, self.det_range)
+            mask = maps["overlap_mask"] & in_range
+            frame_row[f"L{level}_in_range_frac"] = float(in_range[0].float().mean())
             frame_row[f"L{level}_n_cells"] = int(mask[0].sum())
             frame_row[f"L{level}_coverage"] = float(mask[0].float().mean())
             for key in LEVEL_KEYS:
@@ -268,7 +310,11 @@ class LevyRecorder:
                         frame_row,
                     )
 
-        fused_mask = uncertainty["overlap_mask"]
+        fused_in_range = in_range_mask(
+            uncertainty["overlap_mask"], self.pc_range, self.det_range
+        )
+        fused_mask = uncertainty["overlap_mask"] & fused_in_range
+        frame_row["fused_in_range_frac"] = float(fused_in_range[0].float().mean())
         frame_row["fused_n_cells"] = int(fused_mask[0].sum())
         frame_row["fused_coverage"] = float(fused_mask[0].float().mean())
         for key in FUSED_KEYS:
@@ -278,6 +324,7 @@ class LevyRecorder:
 
         if n_gt > 0:
             gt_xy = common_utils.torch_tensor_to_numpy(gt_box).mean(axis=1)[:, :2]
+            gt_keep = points_in_range(gt_xy, self.det_range)
             gt_cols = {}
             for level, maps in enumerate(uncertainty["per_scale"]):
                 gt_cols[f"L{level}_n_valid"] = _sample(
@@ -296,11 +343,11 @@ class LevyRecorder:
                     gt_cols[f"fused_{key}"] = _sample(
                         uncertainty[key], gt_xy, self.pc_range
                     )
-            for g in range(n_gt):
+            for g in np.flatnonzero(gt_keep):
                 row = dict(identity)
                 row.update(
                     {
-                        "gt_id": g,
+                        "gt_id": int(g),
                         "x": float(gt_xy[g, 0]),
                         "y": float(gt_xy[g, 1]),
                         "dist": float(np.hypot(gt_xy[g, 0], gt_xy[g, 1])),
@@ -343,11 +390,11 @@ class LevyRecorder:
             if uncertainty.get(key) is not None:
                 columns[f"fused_{key}"] = _sample(uncertainty[key], xy, self.pc_range)
 
-        for k in range(n_pred):
+        for k in np.flatnonzero(points_in_range(xy, self.det_range)):
             box_row = dict(identity)
             box_row.update(
                 {
-                    "box_id": k,
+                    "box_id": int(k),
                     "x": float(xy[k, 0]),
                     "y": float(xy[k, 1]),
                     "dist": float(np.hypot(xy[k, 0], xy[k, 1])),

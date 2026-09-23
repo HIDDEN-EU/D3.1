@@ -113,6 +113,7 @@ def levy_weighted_fuse(
     stochastic=False,
     agent_logit_fn=None,
     decode_fn=None,
+    agent_deviation=False,
 ):
     """
     Levy replacement for :func:`opencood.models.fuse_modules.pyramid_fuse.weighted_fuse`.
@@ -192,6 +193,12 @@ def levy_weighted_fuse(
         them nonzero but attenuated and so inflates raw tr Sigma there. A cell only
         counts for an agent when all of its bilinear samples were observed, i.e.
         the warped observation mask is 1. Fusion weights are unaffected.
+    agent_dev : list or None
+        Per batch element, the per-agent term of the cosine tr Sigma *before* it is
+        summed over agents: {'deviation', 'cosine', 'weight'}, each (N, 1, H, W).
+        ``tr Sigma = sum_j p_j * deviation_j``, so this is the same quantity
+        decomposed -- the cell map says the agents disagree, these say which one is
+        out of line. None unless ``agent_deviation``.
     aux : dict
         {mode: tr Sigma (B, 1, H, W)} for each of ``aux_disagreement_modes``.
     decoded_disagreement : torch.Tensor or None
@@ -210,6 +217,7 @@ def levy_weighted_fuse(
     n_valid_list = []
     aux_lists = {}
     decoded_list = []
+    agent_dev_list = [] if agent_deviation else None
 
     # iterate each batch
     for b in range(B):
@@ -283,6 +291,24 @@ def levy_weighted_fuse(
         for _m in aux_disagreement_modes:
             aux_lists.setdefault(_m, []).append(_disagreement(_m))
 
+        if agent_deviation:
+            # The individual terms of the cosine tr Sigma: how far each agent's
+            # feature direction sits from the consensus at that cell.
+            unit = feature_in_ego / feature_in_ego.norm(dim=1, keepdim=True).clamp(
+                min=NORM_EPS
+            )
+            consensus = torch.sum(unit * weights, dim=0, keepdim=True)
+            dev = torch.sum((unit - consensus) ** 2, dim=1, keepdim=True)
+            cos = torch.sum(unit * consensus, dim=1, keepdim=True) / consensus.norm(
+                dim=1, keepdim=True
+            ).clamp(min=NORM_EPS)
+            agent_dev_list.append({
+                "deviation": dev.detach(),
+                "cosine": cos.detach(),
+                "weight": weights.detach(),
+                "valid": valid.detach(),
+            })
+
         if decode_fn is not None:
             # Same weighted variance, taken after the decoder. The weights are
             # constant over each decoder block, so nearest upsampling is exact.
@@ -328,6 +354,7 @@ def levy_weighted_fuse(
         torch.stack(n_valid_list),
         {m: torch.stack(v) for m, v in aux_lists.items()},
         torch.stack(decoded_list) if decoded_list else None,
+        agent_dev_list,
     )
 
 
@@ -457,6 +484,11 @@ class LevyPyramidFusion(PyramidFusion):
         # default, which matches PyramidFusion.
         self.trunk_no_grad = bool(levy_cfg.get("trunk_no_grad", False))
 
+        # Diagnostic: publish the per-agent terms of the cosine tr Sigma on
+        # ``self.agent_deviation_output`` (see ``levy_weighted_fuse``).
+        self.publish_agent_deviation = bool(levy_cfg.get("agent_deviation", False))
+        self.agent_deviation_output = None
+
         self.compute_uncertainty = bool(levy_cfg.get("compute_uncertainty", True))
         self.detach_uncertainty = bool(levy_cfg.get("detach_uncertainty", True))
 
@@ -487,6 +519,30 @@ class LevyPyramidFusion(PyramidFusion):
         # PyramidFusion's so checkpoints remain interchangeable.
         self.calib_a = float(calibration.get("a", 1.0))
         self.calib_b = float(calibration.get("b", 0.0))
+
+        # Runtime "a vehicle is probably here" mask: the fitted logistic over the
+        # Levy signals, evaluated on the level-0 grid during the forward pass. The
+        # coefficients come from ``levy_cells_study.py --export`` and are plain
+        # config numbers, so the state_dict stays interchangeable with PyramidFusion.
+        mask_cfg = levy_cfg.get("vehicle_mask", {}) or {}
+        self.vehicle_mask_cfg = mask_cfg if mask_cfg.get("enabled", False) else None
+        if self.vehicle_mask_cfg is not None:
+            need = ("features", "mean", "scale", "coef", "intercept")
+            missing = [k for k in need if k not in mask_cfg]
+            if missing:
+                raise ValueError(f"levy.vehicle_mask is missing {missing}")
+            n = len(mask_cfg["features"])
+            if not all(len(mask_cfg[k]) == n for k in ("mean", "scale", "coef")):
+                raise ValueError("levy.vehicle_mask: features/mean/scale/coef differ in length")
+            if not self.compute_uncertainty:
+                raise ValueError("levy.vehicle_mask needs levy.compute_uncertainty: true")
+            self.mask_threshold = float(mask_cfg.get("threshold", 0.5))
+            self.mask_min_agents = int(mask_cfg.get("min_agents", 2))
+            # Evidence has a different scale per regime (one contributor gives
+            # Lambda = tau*exp(S) of that agent alone), so a rule fitted for one
+            # regime must be confined to it.
+            self.mask_max_agents = int(mask_cfg.get("max_agents", 0)) or None
+        self.vehicle_mask_output = None
 
         self.uncertainty_output = None
 
@@ -592,6 +648,7 @@ class LevyPyramidFusion(PyramidFusion):
             ]
         fused_feature_list = []
         per_scale = []
+        level_dev = []
 
         for i in range(self.num_levels):
             occ_map = occ_map_list[i]
@@ -627,7 +684,7 @@ class LevyPyramidFusion(PyramidFusion):
 
                 score = score * cam_crop_mask
 
-            fused, log_evidence, disagreement, n_valid, aux, decoded = (
+            fused, log_evidence, disagreement, n_valid, aux, decoded, agent_dev = (
                 levy_weighted_fuse(
                     feature_list[i],
                     score,
@@ -643,20 +700,116 @@ class LevyPyramidFusion(PyramidFusion):
                     stochastic=stochastic,
                     agent_logit_fn=agent_logit_fns[i],
                     decode_fn=decode_fns[i],
+                    agent_deviation=self.publish_agent_deviation,
                 )
             )
+            if agent_dev is not None:
+                level_dev.append(agent_dev)
             fused_feature_list.append(fused)
             per_scale.append((log_evidence, disagreement, n_valid, aux, decoded))
+
+        self.agent_deviation_output = level_dev if level_dev else None
 
         fused_feature = self.decode_multiscale_feature(fused_feature_list)
 
         self.uncertainty_output = (
             self._build_trust_map(per_scale) if self.compute_uncertainty else None
         )
+        # A mask that uses the detector's score map has to wait for the detection
+        # head, which runs after fusion; the model then calls
+        # ``complete_vehicle_mask``. A Levy-only mask is finished here.
+        self.vehicle_mask_output = (
+            self._vehicle_mask(self.uncertainty_output)
+            if self.vehicle_mask_cfg is not None and self.uncertainty_output is not None
+            else None
+        )
+        if self.vehicle_mask_output is not None:
+            self.uncertainty_output.update(self.vehicle_mask_output)
 
         if return_uncertainty:
             return fused_feature, occ_map_list, self.uncertainty_output
         return fused_feature, occ_map_list
+
+    @property
+    def mask_needs_detector(self):
+        """True when the configured mask uses the detection head's score map."""
+        return (self.vehicle_mask_cfg is not None
+                and "det_score" in self.vehicle_mask_cfg["features"])
+
+    @torch.no_grad()
+    def complete_vehicle_mask(self, det_score):
+        """
+        Finish a mask that needs the detector's score map.
+
+        ``det_score`` is (B, 1, H, W) in [0, 1] -- the detection head's class
+        probability, nearest-resampled to the level-0 grid if it differs. Called by
+        the model right after its head; a Levy-only mask never needs this.
+        """
+        if self.vehicle_mask_cfg is None or self.uncertainty_output is None:
+            return None
+        self.vehicle_mask_output = self._vehicle_mask(self.uncertainty_output, det_score)
+        self.uncertainty_output.update(self.vehicle_mask_output)
+        return self.vehicle_mask_output
+
+    @staticmethod
+    def _mask_feature(uncertainty, key, size, det_score=None):
+        """One model input as a level-0 map, transformed as it was when fitted."""
+        if key == "det_score":
+            if det_score is None:
+                raise ValueError("levy.vehicle_mask uses 'det_score'; the model must call "
+                                 "complete_vehicle_mask() after its detection head")
+            value = det_score.float()
+            if value.shape[-2:] != size:
+                value = F.interpolate(value, size=size, mode="nearest")
+            return value
+        level, kind = key.split("_", 1)
+        maps = uncertainty["per_scale"]
+        source = uncertainty if level == "fused" else maps[int(level[1:])]
+        if kind not in source:
+            raise KeyError(f"levy.vehicle_mask needs '{key}', which this run does not publish")
+        value = source[kind]
+        if value.shape[-2:] != size:
+            # Same nearest upsampling the level mean uses.
+            value = F.interpolate(value.float(), size=size, mode="nearest")
+        value = value.float()
+        if kind == "disagreement":
+            value = torch.log(value + 1e-6)
+        elif kind == "evidence":
+            value = torch.log(value.clamp(min=1e-30))
+        return value
+
+    @torch.no_grad()
+    def _vehicle_mask(self, uncertainty, det_score=None):
+        """
+        P(a vehicle covers this cell) per level-0 cell, and its threshold mask.
+
+        The logistic fitted offline on labelled cells, applied here to the maps
+        this forward pass produced -- no ground truth and no second pass. Cells
+        seen by fewer than ``min_agents`` agents are left at probability 0, since
+        disagreement is identically zero there and the model never saw such cells.
+        """
+        cfg = self.vehicle_mask_cfg
+        if self.mask_needs_detector and det_score is None:
+            return None  # deferred until complete_vehicle_mask()
+        size = uncertainty["n_valid"].shape[-2:]
+        device = uncertainty["n_valid"].device
+        logit = torch.full((uncertainty["n_valid"].shape[0], 1) + tuple(size),
+                           float(cfg["intercept"]), device=device)
+        for key, mean, scale, coef in zip(
+            cfg["features"], cfg["mean"], cfg["scale"], cfg["coef"]
+        ):
+            x = self._mask_feature(uncertainty, key, size, det_score)
+            logit = logit + float(coef) * (x - float(mean)) / float(scale)
+        prob = torch.sigmoid(logit)
+        usable = uncertainty["n_valid"] >= self.mask_min_agents
+        if self.mask_max_agents is not None:
+            usable = usable & (uncertainty["n_valid"] <= self.mask_max_agents)
+        prob = prob * usable.to(prob.dtype)
+        return {
+            "vehicle_prob": prob,
+            "vehicle_mask": prob >= self.mask_threshold,
+            "vehicle_mask_usable": usable,
+        }
 
     def _make_level_decoder(self, level):
         """
@@ -722,7 +875,10 @@ class LevyPyramidFusion(PyramidFusion):
 
         'average'
             nearest-upsample every level and take the omega-weighted average of
-            evidence, disagreement and sigma.
+            evidence, disagreement and sigma, and of each aux channel
+            (``disagreement_<mode>`` / ``sigma_<mode>``). ``log_evidence`` is the
+            log of the averaged evidence. Nearest upsampling copies a coarse cell
+            onto the s x s block its kernel == stride deblock writes to.
         'decoded'
             the levels are concatenated by HEAL's decoder, and the weighted
             variance of a concatenation is the sum of its blocks' variances; the
@@ -756,6 +912,7 @@ class LevyPyramidFusion(PyramidFusion):
         decoded_acc = None
         decoded_var_acc = None
         decoded_channels = 0
+        aux_acc = {}
         scale_maps = []
         base_n_valid = None
 
@@ -781,10 +938,12 @@ class LevyPyramidFusion(PyramidFusion):
                     "overlap_mask": overlap_mask,
                 }
             )
+            aux_maps = {}
             for _m, _d in aux.items():
                 _d = _d.detach() if self.detach_uncertainty else _d
-                scale_maps[-1][f"disagreement_{_m}"] = _d
-                scale_maps[-1][f"sigma_{_m}"] = torch.sqrt(F.relu(_d * phi))
+                aux_maps[f"disagreement_{_m}"] = _d
+                aux_maps[f"sigma_{_m}"] = torch.sqrt(F.relu(_d * phi))
+            scale_maps[-1].update(aux_maps)
 
             if decoded is not None:
                 decoded = decoded.detach() if self.detach_uncertainty else decoded
@@ -806,6 +965,10 @@ class LevyPyramidFusion(PyramidFusion):
                 n_valid = F.interpolate(
                     n_valid.float(), size=base_size, mode="nearest"
                 ).to(n_valid.dtype)
+                aux_maps = {
+                    k: F.interpolate(v, size=base_size, mode="nearest")
+                    for k, v in aux_maps.items()
+                }
 
             w = self.scale_weights[i]
             # A fused cell is only as observed as its least-observed contributing
@@ -838,6 +1001,8 @@ class LevyPyramidFusion(PyramidFusion):
                 if disagreement_acc is None
                 else disagreement_acc + w * disagreement
             )
+            for k, v in aux_maps.items():
+                aux_acc[k] = w * v if k not in aux_acc else aux_acc[k] + w * v
 
         if decoded_mode:
             norm = decoded_channels if self.disagreement_reduction == "mean" else 1
@@ -846,7 +1011,11 @@ class LevyPyramidFusion(PyramidFusion):
             evidence_acc = None
 
         return {
+            **aux_acc,
             "evidence": evidence_acc,
+            "log_evidence": (
+                None if evidence_acc is None else torch.log(evidence_acc.clamp(min=1e-30))
+            ),
             "disagreement": disagreement_acc,
             "sigma": sigma_acc,
             "sigma_calibrated": self.calib_a * sigma_acc + self.calib_b,
