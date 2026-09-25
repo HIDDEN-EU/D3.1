@@ -43,6 +43,58 @@ def _principal_yaw(rows, cols, dx, dy):
     return float(np.arctan2(major[1], major[0]))
 
 
+def _pred_corners(infer_result):
+    pred = infer_result.get("pred_box_tensor")
+    if pred is None:
+        return np.zeros((0, 8, 3), np.float32)
+    return common_utils.torch_tensor_to_numpy(pred).astype(np.float32)
+
+
+def undetected_cells(mask, pred_corners, pc_range, det_range):
+    """(H, W) bool: flagged cells inside det_range that no (dilated) predicted box covers."""
+    from scipy.ndimage import binary_dilation
+
+    H, W = mask.shape
+    x_min, y_min, _, x_max, y_max, _ = pc_range
+    dx, dy = (x_max - x_min) / W, (y_max - y_min) / H
+
+    covered = _polygon_mask(pred_corners, (H, W), pc_range)
+    if DILATE_CELLS:
+        covered = binary_dilation(covered, np.ones((2 * DILATE_CELLS + 1,) * 2))
+
+    xs = x_min + (np.arange(W) + 0.5) * dx
+    ys = y_min + (np.arange(H) + 0.5) * dy
+    in_range = ((ys >= det_range[1]) & (ys <= det_range[4]))[:, None] & (
+        (xs >= det_range[0]) & (xs <= det_range[3]))[None, :]
+
+    return mask & ~covered & in_range
+
+
+def group_proposals(free, prob, pc_range, min_cells=MIN_CELLS):
+    """One row per connected group of ``free`` cells with at least ``min_cells`` cells."""
+    from scipy.ndimage import label
+
+    H, W = free.shape
+    x_min, y_min, _, x_max, y_max, _ = pc_range
+    dx, dy = (x_max - x_min) / W, (y_max - y_min) / H
+
+    groups, n = label(free)
+    found = []
+    for g in range(1, n + 1):
+        rows, cols = np.nonzero(groups == g)
+        if len(rows) < min_cells:
+            continue
+        found.append({
+            "x": x_min + (cols.mean() + 0.5) * dx,
+            "y": y_min + (rows.mean() + 0.5) * dy,
+            "yaw": _principal_yaw(rows, cols, dx, dy),
+            "n_cells": len(rows),
+            "prob": float(prob[rows, cols].mean()),
+            "prob_max": float(prob[rows, cols].max()),
+        })
+    return found
+
+
 class ProposalRecorder:
     """Collects mask proposals over a run."""
 
@@ -55,51 +107,18 @@ class ProposalRecorder:
         self.rows = []
 
     def add(self, frame, use_cav, infer_result, uncertainty):
-        from scipy.ndimage import binary_dilation, label
-
         if uncertainty.get("vehicle_mask") is None:
             raise ValueError("--save_proposals needs levy.vehicle_mask enabled")
         mask = uncertainty["vehicle_mask"][0, 0].cpu().numpy()
-        H, W = mask.shape
-        x_min, y_min, _, x_max, y_max, _ = self.pc_range
-        dx, dy = (x_max - x_min) / W, (y_max - y_min) / H
-
-        pred = infer_result["pred_box_tensor"]
-        pred_corners = (np.zeros((0, 8, 3), np.float32) if pred is None
-                        else common_utils.torch_tensor_to_numpy(pred).astype(np.float32))
-        covered = _polygon_mask(pred_corners, (H, W), self.pc_range)
-        if DILATE_CELLS:
-            covered = binary_dilation(covered, np.ones((2 * DILATE_CELLS + 1,) * 2))
-
-        xs = x_min + (np.arange(W) + 0.5) * dx
-        ys = y_min + (np.arange(H) + 0.5) * dy
-        in_range = ((ys >= self.det_range[1]) & (ys <= self.det_range[4]))[:, None] & (
-            (xs >= self.det_range[0]) & (xs <= self.det_range[3]))[None, :]
-
-        free = mask & ~covered & in_range
-        groups, n = label(free)
-        if os.environ.get("LEVY_PROP_DEBUG"):
-            sizes = np.bincount(groups.ravel())[1:] if n else np.zeros(0)
-            print(f"[proposals] frame {frame}: flagged {mask.sum()} cells, "
-                  f"{free.sum()} outside detections, {n} groups, "
-                  f"{(sizes >= self.min_cells).sum()} of size >= {self.min_cells}")
-        if n == 0:
-            return
+        free = undetected_cells(mask, _pred_corners(infer_result), self.pc_range, self.det_range)
         prob = uncertainty["vehicle_prob"][0, 0].cpu().numpy()
-        for g in range(1, n + 1):
-            rows, cols = np.nonzero(groups == g)
-            if len(rows) < self.min_cells:
-                continue
-            self.rows.append({
-                "frame": frame,
-                "use_cav": use_cav,
-                "x": x_min + (cols.mean() + 0.5) * dx,
-                "y": y_min + (rows.mean() + 0.5) * dy,
-                "yaw": _principal_yaw(rows, cols, dx, dy),
-                "n_cells": len(rows),
-                "prob": float(prob[rows, cols].mean()),
-                "prob_max": float(prob[rows, cols].max()),
-            })
+        found = group_proposals(free, prob, self.pc_range, self.min_cells)
+        if os.environ.get("LEVY_PROP_DEBUG"):
+            print(f"[proposals] frame {frame}: flagged {mask.sum()} cells, "
+                  f"{free.sum()} outside detections, "
+                  f"{len(found)} groups of size >= {self.min_cells}")
+        for row in found:
+            self.rows.append({"frame": frame, "use_cav": use_cav, **row})
 
     def corners(self, rows):
         """(N, 8, 3) corners of the given proposal rows, as the evaluation wants."""
@@ -129,3 +148,46 @@ class ProposalRecorder:
 def record_frame(recorder, levy_fusion, frame, use_cav, infer_result, **_):
     if levy_fusion.uncertainty_output is not None:
         recorder.add(frame, use_cav, infer_result, levy_fusion.uncertainty_output)
+
+
+@torch.no_grad()
+def vis_overlay(levy_fusion, infer_result, pc_range, det_range, anchor_args,
+                min_cells=MIN_CELLS):
+    """What the vehicle mask adds to one frame, in metric coordinates, for drawing.
+
+    ``cell_corners`` (N, 4, 2) are the flagged cells no detection covers, ``in_gt``
+    (N,) says which of them lie inside a ground-truth box, and ``proposal_corners``
+    (M, 8, 3) / ``proposal_prob`` (M,) are the proposals built from them.
+    """
+    uncertainty = levy_fusion.uncertainty_output
+    if uncertainty is None or uncertainty.get("vehicle_mask") is None:
+        return None
+    mask = uncertainty["vehicle_mask"][0, 0].cpu().numpy()
+    H, W = mask.shape
+    x_min, y_min, _, x_max, y_max, _ = pc_range
+    dx, dy = (x_max - x_min) / W, (y_max - y_min) / H
+
+    free = undetected_cells(mask, _pred_corners(infer_result), pc_range, det_range)
+    rows, cols = np.nonzero(free)
+    x0 = x_min + cols * dx
+    y0 = y_min + rows * dy
+    cell_corners = np.stack([
+        np.stack([x0, y0], 1), np.stack([x0 + dx, y0], 1),
+        np.stack([x0 + dx, y0 + dy], 1), np.stack([x0, y0 + dy], 1),
+    ], 1)
+
+    gt = infer_result.get("gt_box_tensor")
+    gt_corners = (np.zeros((0, 8, 3), np.float32) if gt is None
+                  else common_utils.torch_tensor_to_numpy(gt).astype(np.float32))
+    in_gt = _polygon_mask(gt_corners, (H, W), pc_range)[rows, cols]
+
+    prob = uncertainty["vehicle_prob"][0, 0].cpu().numpy()
+    found = group_proposals(free, prob, pc_range, min_cells)
+    recorder = ProposalRecorder(pc_range, det_range, anchor_args, min_cells)
+    table = {k: np.array([r[k] for r in found]) for k in ("x", "y", "yaw", "prob")}
+    return {
+        "cell_corners": cell_corners,
+        "in_gt": in_gt,
+        "proposal_corners": recorder.corners(table if found else []),
+        "proposal_prob": table["prob"],
+    }

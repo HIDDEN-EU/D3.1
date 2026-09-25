@@ -28,7 +28,13 @@ from torch.utils.data import DataLoader, Subset
 from opencood.data_utils.datasets import build_dataset
 from opencood.hypes_yaml import yaml_utils
 from opencood.tools import inference_utils, train_utils
-from opencood.tools.levy import levy_agent_dev, levy_cells, levy_collect, levy_proposals
+from opencood.tools.levy import (
+    levy_agent_dev,
+    levy_cells,
+    levy_collect,
+    levy_proposals,
+    levy_rescore,
+)
 from opencood.utils import eval_utils
 from opencood.utils.common_utils import update_dict
 from opencood.utils.perf_utils import PerfProfiler
@@ -133,6 +139,28 @@ def test_parser():
         "write them to model_dir/levy_<info>_proposals.npz; implies --save_levy",
     )
     parser.add_argument(
+        "--vis_levy_mask",
+        action="store_true",
+        help="draw the Levy vehicle mask's undetected cells (orange = inside a GT box, "
+        "magenta = not) and its proposals on the vis frames; needs levy.vehicle_mask",
+    )
+    parser.add_argument(
+        "--levy_rescore",
+        type=str,
+        nargs="+",
+        default=None,
+        help="one or more box_rescore_params*.json (levy_rescore.py): replace each box's "
+        "score with the logistic probability of a true positive (model B: Levy signals, "
+        "C: Levy signals + detection score, both for >= 2 observing agents; S: evidence + "
+        "detection score for 1 agent); boxes no model covers keep the detector score",
+    )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=4,
+        help="DataLoader workers; fewer workers use less RAM when runs share the machine",
+    )
+    parser.add_argument(
         "--max_frames",
         type=int,
         default=None,
@@ -233,7 +261,7 @@ def main():
     levy_fusion = None
     if opt.save_cells or opt.save_proposals or opt.save_agent_dev:
         opt.save_levy = True
-    if opt.save_levy:
+    if opt.save_levy or opt.vis_levy_mask or opt.levy_rescore:
         levy_fusion = levy_collect.get_levy_fusion(model)
         if opt.fusion_method != "intermediate" or levy_fusion is None:
             raise ValueError(
@@ -334,7 +362,7 @@ def main():
         data_loader = DataLoader(
             loader_dataset,
             batch_size=1,
-            num_workers=4,
+            num_workers=opt.num_workers,
             collate_fn=opencood_dataset.collate_batch_test,
             shuffle=False,
             pin_memory=False,
@@ -354,12 +382,19 @@ def main():
         if opt.lidar_degrade:
             infer_info += f"_m1_{lidar_config['m1']}_m3_{lidar_config['m3']}"
 
+        rescorer = (
+            levy_rescore.BoxRescorer(
+                opt.levy_rescore, hypes["postprocess"]["anchor_args"]["cav_lidar_range"]
+            )
+            if opt.levy_rescore
+            else None
+        )
         levy_recorder = (
             levy_collect.LevyRecorder(
                 hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
                 hypes["postprocess"]["gt_range"],
             )
-            if levy_fusion is not None
+            if levy_fusion is not None and opt.save_levy
             else None
         )
         agent_dev_recorder = (
@@ -483,6 +518,10 @@ def main():
                 # of shape [N, 8, 3]
                 # N: number of objects detected
                 # [8, 3]: coordinates of the 8 bounding box corners, in 3-dimensions
+                if rescorer is not None:
+                    infer_result["pred_score"] = rescorer(
+                        levy_fusion.uncertainty_output, infer_result
+                    )
                 pred_box_tensor = infer_result["pred_box_tensor"]
                 gt_box_tensor = infer_result["gt_box_tensor"]
                 pred_score = infer_result["pred_score"]
@@ -538,6 +577,14 @@ def main():
                         os.makedirs(vis_save_path_root)
 
                     vis_save_path = os.path.join(vis_save_path_root, "bev_%05d.png" % i)
+                    if opt.vis_levy_mask:
+                        infer_result["levy_mask_overlay"] = levy_proposals.vis_overlay(
+                            levy_fusion,
+                            infer_result,
+                            hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
+                            hypes["postprocess"]["gt_range"],
+                            hypes["postprocess"]["anchor_args"],
+                        )
                     simple_vis.visualize(
                         infer_result,
                         batch_data["ego"]["origin_lidar"][0],
@@ -593,6 +640,9 @@ def main():
         _, ap50, ap70 = eval_utils.eval_final_results(
             result_stat, opt.model_dir, infer_info
         )
+
+        if rescorer is not None:
+            print(rescorer.summary())
 
         if levy_recorder is not None:
             paths = levy_recorder.write(os.path.join(opt.model_dir, f"levy_{infer_info}"))

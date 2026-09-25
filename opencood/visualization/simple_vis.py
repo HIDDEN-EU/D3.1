@@ -3,10 +3,48 @@
 
 import copy
 
+import cv2
 import numpy as np
 from matplotlib import pyplot as plt
 
 from opencood.visualization.simple_plot3d import canvas_3d, canvas_bev
+
+# Levy vehicle-mask overlay: flagged cells no detection covers, split by whether
+# a ground-truth vehicle is really there, and the proposals built from them.
+LEVY_HIT_COLOR = (255, 140, 0)
+LEVY_MISS_COLOR = (255, 0, 255)
+LEVY_PROPOSAL_COLOR = (255, 255, 0)
+LEVY_CELL_ALPHA = 0.5
+
+
+def _draw_levy_mask(canvas, overlay):
+    """Blend the mask's undetected cells onto the canvas and draw its proposals."""
+    cells = overlay["cell_corners"]
+    in_gt = overlay["in_gt"]
+    if len(cells):
+        pts, _ = canvas.get_canvas_coords(cells.reshape(-1, 2))
+        pts = pts.reshape(-1, 4, 2).astype(np.int32)
+        layer = canvas.canvas.copy()
+        cv2.fillPoly(layer, list(pts[~in_gt]), LEVY_MISS_COLOR)
+        cv2.fillPoly(layer, list(pts[in_gt]), LEVY_HIT_COLOR)
+        canvas.canvas = cv2.addWeighted(
+            layer, LEVY_CELL_ALPHA, canvas.canvas, 1 - LEVY_CELL_ALPHA, 0
+        )
+    proposals = overlay["proposal_corners"]
+    if len(proposals):
+        canvas.draw_boxes(
+            proposals,
+            colors=LEVY_PROPOSAL_COLOR,
+            texts=[f"prop:{p:.2f}" for p in overlay["proposal_prob"]],
+        )
+    caption = (
+        f"L0 mask: {len(cells)} undetected cells ({int(in_gt.sum())} in GT), "
+        f"{len(proposals)} proposals"
+    )
+    canvas.canvas = cv2.putText(
+        canvas.canvas, caption, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+        LEVY_PROPOSAL_COLOR, 2,
+    )
 
 
 def visualize(infer_result, pcd, pc_range, save_path, method="3d", left_hand=False):
@@ -114,6 +152,8 @@ def visualize(infer_result, pcd, pc_range, save_path, method="3d", left_hand=Fal
 
         canvas_xy, valid_mask = canvas.get_canvas_coords(pcd_np)  # Get Canvas Coords
         canvas.draw_canvas_points(canvas_xy[valid_mask])  # Only draw valid points
+        if infer_result.get("levy_mask_overlay") is not None:
+            _draw_levy_mask(canvas, infer_result["levy_mask_overlay"])
         if gt_box_tensor is not None:
             canvas.draw_boxes(gt_box_np, colors=(0, 255, 0), texts=gt_name)
             # canvas.draw_boxes(gt_box_np,colors=(0,255,0), texts=['']*len(gt_name), box_line_thickness=4) # paper visualization
