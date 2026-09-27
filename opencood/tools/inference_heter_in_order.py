@@ -155,6 +155,14 @@ def test_parser():
         "detection score for 1 agent); boxes no model covers keep the detector score",
     )
     parser.add_argument(
+        "--levy_proposals",
+        type=str,
+        default=None,
+        help="proposal_selector*.json (levy_proposal_refine.py --write_selector): add the "
+        "detector's own box at each uncovered Levy-mask group whose learned quality passes "
+        "the selector's threshold, scored below every detection; needs levy.vehicle_mask",
+    )
+    parser.add_argument(
         "--num_workers",
         type=int,
         default=4,
@@ -261,7 +269,7 @@ def main():
     levy_fusion = None
     if opt.save_cells or opt.save_proposals or opt.save_agent_dev:
         opt.save_levy = True
-    if opt.save_levy or opt.vis_levy_mask or opt.levy_rescore:
+    if opt.save_levy or opt.vis_levy_mask or opt.levy_rescore or opt.levy_proposals:
         levy_fusion = levy_collect.get_levy_fusion(model)
         if opt.fusion_method != "intermediate" or levy_fusion is None:
             raise ValueError(
@@ -389,6 +397,16 @@ def main():
             if opt.levy_rescore
             else None
         )
+        selector = (
+            levy_proposals.ProposalSelector(
+                opt.levy_proposals,
+                model,
+                hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
+                hypes["postprocess"]["gt_range"],
+            )
+            if opt.levy_proposals
+            else None
+        )
         levy_recorder = (
             levy_collect.LevyRecorder(
                 hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
@@ -415,6 +433,7 @@ def main():
                 hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
                 hypes["postprocess"]["gt_range"],
                 hypes["postprocess"]["anchor_args"],
+                model=model,
             )
             if levy_fusion is not None and opt.save_proposals
             else None
@@ -522,6 +541,32 @@ def main():
                     infer_result["pred_score"] = rescorer(
                         levy_fusion.uncertainty_output, infer_result
                     )
+                n_detections = None
+                if selector is not None:
+                    corners, quality = selector(
+                        levy_fusion.uncertainty_output,
+                        infer_result,
+                        batch_data["ego"]["anchor_box"],
+                    )
+                    infer_result["levy_proposals"] = (corners, quality)
+                    det_box = infer_result["pred_box_tensor"]
+                    n_detections = 0 if det_box is None else det_box.shape[0]
+                    if len(corners):
+                        new_box = torch.as_tensor(corners, device=device)
+                        new_score = torch.as_tensor(
+                            selector.score_scale * quality, dtype=torch.float32, device=device
+                        )
+                        if det_box is None:
+                            infer_result["pred_box_tensor"] = new_box
+                            infer_result["pred_score"] = new_score
+                        else:
+                            infer_result["pred_box_tensor"] = torch.cat(
+                                [det_box, new_box.to(det_box.dtype)]
+                            )
+                            infer_result["pred_score"] = torch.cat(
+                                [infer_result["pred_score"],
+                                 new_score.to(infer_result["pred_score"].dtype)]
+                            )
                 pred_box_tensor = infer_result["pred_box_tensor"]
                 gt_box_tensor = infer_result["gt_box_tensor"]
                 pred_score = infer_result["pred_score"]
@@ -577,16 +622,25 @@ def main():
                         os.makedirs(vis_save_path_root)
 
                     vis_save_path = os.path.join(vis_save_path_root, "bev_%05d.png" % i)
+                    vis_result = infer_result
+                    if n_detections is not None:
+                        # draw the real detections as usual and the proposals in the overlay
+                        vis_result = dict(infer_result)
+                        if infer_result["pred_box_tensor"] is not None:
+                            vis_result["pred_box_tensor"] = infer_result["pred_box_tensor"][:n_detections]
+                            if infer_result.get("score_tensor") is not None:
+                                vis_result["score_tensor"] = infer_result["score_tensor"][:n_detections]
                     if opt.vis_levy_mask:
-                        infer_result["levy_mask_overlay"] = levy_proposals.vis_overlay(
+                        vis_result["levy_mask_overlay"] = levy_proposals.vis_overlay(
                             levy_fusion,
-                            infer_result,
+                            vis_result,
                             hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
                             hypes["postprocess"]["gt_range"],
                             hypes["postprocess"]["anchor_args"],
+                            proposals=infer_result.get("levy_proposals"),
                         )
                     simple_vis.visualize(
-                        infer_result,
+                        vis_result,
                         batch_data["ego"]["origin_lidar"][0],
                         hypes["postprocess"]["gt_range"],
                         vis_save_path,
@@ -643,6 +697,8 @@ def main():
 
         if rescorer is not None:
             print(rescorer.summary())
+        if selector is not None:
+            print(selector.summary())
 
         if levy_recorder is not None:
             paths = levy_recorder.write(os.path.join(opt.model_dir, f"levy_{infer_info}"))
