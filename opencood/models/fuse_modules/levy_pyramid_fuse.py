@@ -107,7 +107,6 @@ def levy_weighted_fuse(
     align_corners,
     tau=0.5,
     gamma=1.0,
-    logits=None,
     disagreement_reduction="mean",
     disagreement_mode="raw",
     aux_disagreement_modes=(),
@@ -139,10 +138,6 @@ def levy_weighted_fuse(
         Base Poisson rate. Scales the evidence; cancels out of the fusion weights.
     gamma : float or torch.Tensor
         Logit temperature. ``gamma == 1`` reproduces HEAL's weights exactly.
-    logits : torch.Tensor, optional
-        Raw foreground logits, (sum(n_cav), 1, H, W). When given they drive the
-        intensity instead of ``score`` (``score_mode='logit'``); ``score`` still
-        supplies the validity mask.
     disagreement_reduction : str
         'sum', 'mean' over the channel axis. 'sum' makes tr Sigma grow
         with the level's channel count, which the per-level omega_l weights are there
@@ -210,7 +205,6 @@ def levy_weighted_fuse(
     B, L = affine_matrix.shape[:2]
     split_x = regroup(x, record_len)
     split_score = regroup(score, record_len)
-    split_logits = regroup(logits, record_len) if logits is not None else None
 
     out = []
     log_evidence_list = []
@@ -235,15 +229,7 @@ def levy_weighted_fuse(
         # intensity, so they contribute neither weight nor evidence.
         valid = scores_in_ego != 0
 
-        if split_logits is None:
-            s_map = scores_in_ego
-        else:
-            s_map = warp_affine_simple(
-                split_logits[b],
-                t_matrix[i, :, :, :],
-                (H, W),
-                align_corners=align_corners,
-            )
+        s_map = scores_in_ego
 
         # lambda_j = tau * exp(gamma * S_j), held in log space.
         log_lambda = math.log(tau) + gamma * s_map
@@ -429,7 +415,7 @@ class LevyPyramidFusion(PyramidFusion):
     additionally publishes a BEV spatial trust map on
     ``self.uncertainty_output`` (and returns it when ``return_uncertainty=True``).
 
-    With the default config (``temp_gamma=1.0``, ``score_mode='heal'``) the fused
+    With the default config (``temp_gamma=1.0``) the fused
     features are numerically identical to ``PyramidFusion``'s, so an existing
     collaboration base can be swapped over without retraining and backward alignment
     of new agents is untouched.
@@ -451,11 +437,6 @@ class LevyPyramidFusion(PyramidFusion):
         else:
             self.log_gamma = None
             self.gamma_value = gamma
-
-        self.score_mode = levy_cfg.get("score_mode", "heal")
-        assert self.score_mode in ("heal", "logit"), (
-            f"unknown levy.score_mode {self.score_mode}"
-        )
 
         self.disagreement_reduction = levy_cfg.get("disagreement_reduction", "sum")
         assert self.disagreement_reduction in ("sum", "mean")
@@ -552,12 +533,11 @@ class LevyPyramidFusion(PyramidFusion):
         # None unless `levy.gateway.enable` is set -- see opencood/models/LevyHooks/.
         # Parameter-free, so the state_dict is unchanged either way.
         self.gateway = build_gateway_hook(
-            levy_cfg.get("gateway"), num_levels=self.num_levels,
-            default_score_mode=self.score_mode)
+            levy_cfg.get("gateway"), num_levels=self.num_levels)
 
         print(
             f"Levy pyramid fusion: tau={self.tau}, gamma={gamma}, "
-            f"score_mode={self.score_mode}, disagreement={self.disagreement_mode}"
+            f"disagreement={self.disagreement_mode}"
             f"/{self.disagreement_reduction}, scale_weights={self.scale_weights}, "
             f"combined_mode={self.combined_mode}"
         )
@@ -714,7 +694,6 @@ class LevyPyramidFusion(PyramidFusion):
                     self.align_corners,
                     tau=self.tau,
                     gamma=self.gamma,
-                    logits=occ_map if self.score_mode == "logit" else None,
                     disagreement_reduction=self.disagreement_reduction,
                     disagreement_mode=self.disagreement_mode,
                     aux_disagreement_modes=self.aux_disagreement_modes,

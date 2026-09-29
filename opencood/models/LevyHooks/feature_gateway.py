@@ -1,6 +1,4 @@
 """
-Hook 2 -- LevyFeatureGateway (blueprint Sec. 5).
-
 Gates an agent's own BEV features against its own evidence, before they are
 warped into the ego frame -- i.e. at the point where a real deployment would
 transmit.
@@ -13,8 +11,9 @@ transmit.
 
 Zero retraining: no parameters, so the state_dict is unchanged either way.
 
-Two objects live here. :class:`LevyFeatureGateway` is the operator -- gate one
-feature map against one score map. :class:`GatewayHook` is the *policy* around
+Two kinds of object live here. :class:`LevyFeatureGateway` and
+:class:`SigmoidFeatureGateway` are interchangeable operators (``gate_fn``) -- gate
+one feature map against one score map. :class:`GatewayHook` is the *policy* around
 it: which pyramid levels to touch, which agents are exempt, and the bandwidth
 bookkeeping. Keeping the policy here rather than in the fusion module is what
 lets the call site be three lines, and it puts every "who gets gated" decision in
@@ -26,15 +25,14 @@ import math
 import torch
 import torch.nn as nn
 
-from opencood.models.LevyHooks.common import (announce, check_score_mode,
-                                              default_gamma, note_disabled,
-                                              to_score)
+from opencood.models.LevyHooks.common import announce, note_disabled
 
 
 class LevyFeatureGateway(nn.Module):
     """
     Pre-transmission gate on one agent's own BEV features::
 
+        S_j(s)        = sigmoid(occ_j(s))
         Lambda_j(s)   = tau * exp(gamma * S_j(s))
         F_gated(s)    = F_j(s) * (1 - exp(-Lambda_j(s)))^k
         M_j(s)        = 1[ Lambda_j(s) >= Theta ]
@@ -46,20 +44,14 @@ class LevyFeatureGateway(nn.Module):
     is no sum over agents, so ``Lambda`` is a monotone function of ``S`` alone and
     the gate is exactly a fixed, parameterless nonlinearity applied to the score.
 
-    Calibration is the whole game, and it does not survive a change of score
-    range (blueprint Sec. 2). With ``tau = 0.5``::
-
-        heal,  gamma=4.0, S in (0, 1]   Lambda in [0.5, 27.3]  gate in [0.63, 1.0]
-        logit, gamma=0.25, S ~ -5       Lambda ~ 0.14          gate ~ 0.13
-
-    The second row is the trap. A frozen checkpoint's backbone and heads were
-    fitted to un-gated feature magnitudes; multiplying the *whole* map by ~0.13 is
-    not a filter, it is a global rescale that the downstream BatchNorm statistics
-    have never seen -- measured at AP70 0.78 against a 0.93 baseline. ``gate_ref``
-    exists for that case: it divides the gate by its value at a reference score,
-    so a cell at ``S = gate_ref`` passes at unity and only cells *below* the
-    reference are attenuated. ``gate_ref=None`` (the default) is the literal
-    blueprint formula.
+    With ``tau = 0.5, gamma = 4``, ``S in (0, 1]`` gives ``Lambda in [0.5, 27.3]``
+    and a gate in ``[0.63, 1.0]``. A frozen checkpoint's backbone and heads were
+    fitted to un-gated feature magnitudes, so the floor matters: a gate that
+    scales the *whole* map down is a global rescale the downstream BatchNorm
+    statistics have never seen, not a filter. ``gate_ref`` divides the gate by its
+    value at a reference score, so a cell at ``S = gate_ref`` passes at unity and
+    only cells *below* the reference are attenuated. ``gate_ref=None`` (the
+    default) is the literal blueprint formula.
 
     Parameters
     ----------
@@ -76,17 +68,15 @@ class LevyFeatureGateway(nn.Module):
         Measured at -0.10 AP70 with the inherited threshold; do not enable it
         without fitting ``pruning_threshold`` first.
     gate_ref : float or None
-        Reference score at which the gate is normalised to 1, in the same units as
-        ``S`` (post-sigmoid for ``'heal'``, raw logit for ``'logit'``).
+        Reference score ``S`` (post-sigmoid) at which the gate is normalised to 1.
     """
 
-    def __init__(self, gate_power=0.5, pruning_threshold=0.6, score_mode='heal',
-                 gamma=None, tau=0.5, hard_prune=False, gate_ref=None):
+    def __init__(self, gate_power=0.5, pruning_threshold=0.6, gamma=4.0, tau=0.5,
+                 hard_prune=False, gate_ref=None):
         super().__init__()
         self.k = float(gate_power)
         self.threshold = float(pruning_threshold)
-        self.score_mode = check_score_mode(score_mode)
-        self.gamma = float(default_gamma(score_mode) if gamma is None else gamma)
+        self.gamma = float(gamma)
         self.tau = float(tau)
         assert self.tau > 0, "tau must be positive"
         self.hard_prune = bool(hard_prune)
@@ -100,16 +90,15 @@ class LevyFeatureGateway(nn.Module):
 
     def extra_repr(self):
         return (f"k={self.k:g}, gamma={self.gamma:g}, tau={self.tau:g}, "
-                f"score_mode={self.score_mode}, threshold={self.threshold:g}, "
+                f"threshold={self.threshold:g}, "
                 f"hard_prune={self.hard_prune}, gate_ref={self.gate_ref}")
 
     def compute_local_evidence(self, local_foreground_map):
         """
-        ``Lambda_j = tau * exp(gamma * S_j)`` from the agent's raw occupancy head
-        output. ``score_mode`` decides whether the raw map is squashed first.
+        ``Lambda_j = tau * exp(gamma * sigmoid(occ_j))`` from the agent's raw
+        occupancy head output.
         """
-        scores = to_score(local_foreground_map, self.score_mode)
-        return self.tau * torch.exp((self.gamma * scores).clamp(max=60.0))
+        return self.tau * torch.exp(self.gamma * torch.sigmoid(local_foreground_map))
 
     def forward(self, local_bev_feature, local_foreground_map, valid=None):
         """
@@ -145,6 +134,75 @@ class LevyFeatureGateway(nn.Module):
             gated_feature = gated_feature * transmission_mask
 
         return gated_feature, transmission_mask, local_evidence
+
+
+class SigmoidFeatureGateway(nn.Module):
+    """
+    The same pre-transmission gate without the Levy evidence::
+
+        g(s)   = g_min + (1 - g_min) * sigmoid((x_j(s) - t) / T)
+        F(s)   = F_j(s) * g(s)
+        M_j(s) = 1[ x_j(s) >= m ]
+
+    with ``x_j`` the raw occupancy logit. With one agent and one cell there is no
+    sum for ``Lambda`` to carry, so the Levy gate above is only a particular
+    monotone curve of ``x``; this one sets that curve's three degrees of freedom
+    directly, in logit units that can be read off a score histogram:
+
+    ``g_min`` the gate on cells the agent is sure are empty (the tau floor), i.e.
+    how far the background is pushed from the magnitudes the frozen BatchNorm
+    was fitted to; ``t`` the logit where the gate is halfway up; ``T`` the
+    width of the transition. ``M_j`` is a Where2comm-style mask on the same logit.
+
+    Parameters
+    ----------
+    gate_floor : float
+        ``g_min`` in [0, 1]. ``1.0`` disables the gate.
+    gate_center : float
+        ``t``, raw logit. The default -3.0 matches the Levy mask's cut-off at its
+        defaults (``sigmoid(x) = ln(Theta/tau)/gamma ~ 0.046``).
+    gate_temp : float
+        ``T`` > 0, in logits.
+    mask_logit : float or None
+        ``m``; ``None`` uses ``gate_center``. Diagnostic unless ``hard_prune``.
+    hard_prune : bool
+        Also zero the features outside the mask.
+    """
+
+    def __init__(self, gate_floor=0.5, gate_center=-3.0, gate_temp=1.0,
+                 mask_logit=None, hard_prune=False):
+        super().__init__()
+        self.g_min = float(gate_floor)
+        assert 0.0 <= self.g_min <= 1.0, "gate_floor must lie in [0, 1]"
+        self.t = float(gate_center)
+        self.T = float(gate_temp)
+        assert self.T > 0, "gate_temp must be positive"
+        self.mask_logit = self.t if mask_logit is None else float(mask_logit)
+        self.hard_prune = bool(hard_prune)
+
+    def extra_repr(self):
+        return (f"gate_fn=sigmoid, g_min={self.g_min:g}, t={self.t:g}, "
+                f"T={self.T:g}, mask_logit={self.mask_logit:g}, "
+                f"hard_prune={self.hard_prune}")
+
+    def forward(self, local_bev_feature, local_foreground_map, valid=None):
+        """
+        Same contract as :meth:`LevyFeatureGateway.forward`, except the third
+        output is the occupancy probability ``sigmoid(x_j)`` rather than
+        ``Lambda_j``.
+        """
+        x = local_foreground_map
+        gate = self.g_min + (1.0 - self.g_min) * torch.sigmoid((x - self.t) / self.T)
+        if valid is not None:
+            gate = torch.where(valid, gate, torch.ones_like(gate))
+
+        gated_feature = local_bev_feature * gate
+
+        transmission_mask = (x >= self.mask_logit).to(gate.dtype)
+        if self.hard_prune:
+            gated_feature = gated_feature * transmission_mask
+
+        return gated_feature, transmission_mask, torch.sigmoid(x)
 
 
 class GatewayHook(nn.Module):
@@ -231,7 +289,7 @@ class GatewayHook(nn.Module):
         if level not in self.levels:
             return features
 
-        gated, tx_mask, local_evidence = self.gate(features, occ_map)
+        gated, tx_mask, signal = self.gate(features, occ_map)
 
         keep = self._exempt_mask(gated.shape[0], gated.device, record_len,
                                  agent_modality_list, cam_crop_info)
@@ -241,28 +299,33 @@ class GatewayHook(nn.Module):
         self.stats.append({
             'level': level,
             'kept_frac': float(tx_mask.mean().detach()),
-            'evidence_mean': float(local_evidence.mean().detach()),
-            'evidence_max': float(local_evidence.max().detach()),
+            # Lambda for the Levy gate, sigmoid(occ) for the sigmoid gate.
+            'signal_mean': float(signal.mean().detach()),
+            'signal_max': float(signal.max().detach()),
         })
         return gated
 
 
-def build_gateway_hook(cfg, num_levels, default_score_mode='heal',
-                       where='LevyPyramidFusion'):
+def build_gateway_hook(cfg, num_levels, where='LevyPyramidFusion'):
     """
     Build a :class:`GatewayHook` from the ``levy.gateway`` yaml block, or ``None``.
-
-    ::
-
         gateway:
           enable: false
+          gate_fn: levy            # levy | sigmoid
+          # -- gate_fn: levy --
           gate_power: 0.5          # k
-          temp_gamma: 4.0          # defaults per score_mode
+          temp_gamma: 4.0
           rate_tau: 0.5
-          score_mode: null         # null = inherit the fusion's own score_mode
           pruning_threshold: 0.6
           hard_prune: false
           gate_ref: null
+          # -- gate_fn: sigmoid (raw occupancy logits) --
+          gate_floor: 0.5          # g_min
+          gate_center: -3.0        # t
+          gate_temp: 1.0           # T
+          mask_logit: null         # null = gate_center
+          # hard_prune applies to both
+          # -- policy --
           levels: [0]              # null = every level
           ego_exempt: false
           cameras_only: true       # recommended; no-op without camera agents
@@ -272,19 +335,27 @@ def build_gateway_hook(cfg, num_levels, default_score_mode='heal',
         note_disabled('gateway', where, cfg)
         return None
 
-    # `or`, not a get() default: the documented yaml block spells the "use the
-    # fusion's own mode" case as an explicit `score_mode: null`, which get()
-    # would hand back as None.
-    score_mode = cfg.get('score_mode') or default_score_mode
-    gate = LevyFeatureGateway(
-        gate_power=float(cfg.get('gate_power', 0.5)),
-        pruning_threshold=float(cfg.get('pruning_threshold', 0.6)),
-        score_mode=score_mode,
-        gamma=cfg.get('temp_gamma', None),
-        tau=float(cfg.get('rate_tau', 0.5)),
-        hard_prune=bool(cfg.get('hard_prune', False)),
-        gate_ref=cfg.get('gate_ref', None),
-    )
+    gate_fn = cfg.get('gate_fn') or 'levy'
+    if gate_fn == 'levy':
+        gate = LevyFeatureGateway(
+            gate_power=float(cfg.get('gate_power', 0.5)),
+            pruning_threshold=float(cfg.get('pruning_threshold', 0.6)),
+            gamma=float(cfg.get('temp_gamma', 4.0)),
+            tau=float(cfg.get('rate_tau', 0.5)),
+            hard_prune=bool(cfg.get('hard_prune', False)),
+            gate_ref=cfg.get('gate_ref', None),
+        )
+    elif gate_fn == 'sigmoid':
+        gate = SigmoidFeatureGateway(
+            gate_floor=float(cfg.get('gate_floor', 0.5)),
+            gate_center=float(cfg.get('gate_center', -3.0)),
+            gate_temp=float(cfg.get('gate_temp', 1.0)),
+            mask_logit=cfg.get('mask_logit', None),
+            hard_prune=bool(cfg.get('hard_prune', False)),
+        )
+    else:
+        raise ValueError(f"levy.gateway.gate_fn must be 'levy' or 'sigmoid', "
+                         f"got {gate_fn!r}")
     hook = GatewayHook(
         gate,
         num_levels=num_levels,

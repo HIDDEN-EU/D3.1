@@ -59,7 +59,7 @@ def add_derived(b):
         b["mean_evidence"] = b[levels].mean(axis=1)
     # Lambda is a sum over contributing agents, so it scales with the observer
     # count. Dividing by it gives the mean per-agent intensity, which under
-    # score_mode 'heal' lands in [tau, tau*e] for every stratum -- the same
+    # the sigmoid score lands in [tau, tau*e] for every stratum -- the same
     # support regardless of how many agents saw the cell, so one global
     # threshold is meaningful without stratifying. Within a stratum this is a
     # monotone transform of Lambda, so it changes nothing there; it only

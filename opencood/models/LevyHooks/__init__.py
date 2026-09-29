@@ -22,11 +22,13 @@ block is absent or carries ``enable: false``, and prints one greppable line
 from opencood.models.LevyHooks.common import active_hooks, reset_registry, summary
 from opencood.models.LevyHooks.feature_gateway import (GatewayHook,
                                                        LevyFeatureGateway,
+                                                       SigmoidFeatureGateway,
                                                        build_gateway_hook)
 
 __all__ = [
     "GatewayHook",
     "LevyFeatureGateway",
+    "SigmoidFeatureGateway",
     "build_gateway_hook",
     "active_hooks",
     "reset_registry",
