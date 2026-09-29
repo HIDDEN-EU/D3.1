@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from opencood.models.LevyHooks import build_gateway_hook
 from opencood.models.fuse_modules.fusion_in_one import regroup
 from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
 from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
@@ -546,6 +547,14 @@ class LevyPyramidFusion(PyramidFusion):
 
         self.uncertainty_output = None
 
+        # Upstream hook: each agent attenuates its own features where its own
+        # evidence is low, before they are warped and fused (pre-transmission).
+        # None unless `levy.gateway.enable` is set -- see opencood/models/LevyHooks/.
+        # Parameter-free, so the state_dict is unchanged either way.
+        self.gateway = build_gateway_hook(
+            levy_cfg.get("gateway"), num_levels=self.num_levels,
+            default_score_mode=self.score_mode)
+
         print(
             f"Levy pyramid fusion: tau={self.tau}, gamma={gamma}, "
             f"score_mode={self.score_mode}, disagreement={self.disagreement_mode}"
@@ -649,10 +658,22 @@ class LevyPyramidFusion(PyramidFusion):
         fused_feature_list = []
         per_scale = []
         level_dev = []
+        if self.gateway is not None:
+            self.gateway.begin_forward()
 
         for i in range(self.num_levels):
             occ_map = occ_map_list[i]
             score = torch.sigmoid(occ_map) + 1e-4
+
+            # Upstream hook: gate the agents' own features before fusion. The
+            # occupancy map (and so the fusion weights and the evidence) is left
+            # as computed from the ungated features; only what each agent
+            # contributes changes. Exempt levels/agents pass through untouched.
+            if self.gateway is not None:
+                feature_list[i] = self.gateway.apply(
+                    i, feature_list[i], occ_map, record_len,
+                    agent_modality_list=agent_modality_list,
+                    cam_crop_info=cam_crop_info)
 
             if crop_mask_flag and not self.training:
                 cam_crop_mask = torch.ones_like(occ_map, device=occ_map.device)

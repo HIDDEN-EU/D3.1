@@ -163,6 +163,28 @@ def test_parser():
         "the selector's threshold, scored below every detection; needs levy.vehicle_mask",
     )
     parser.add_argument(
+        "--levy_gateway",
+        action="store_true",
+        help="enable the pre-transmission Levy feature gateway (camera agents only, "
+        "level 0, tau=0.5): each camera agent multiplies its own features by "
+        "(1 - exp(-tau*exp(gamma*S)))^k before fusion; overrides "
+        "model.args.fusion_backbone.levy.gateway",
+    )
+    # Defaults chosen on the validation split (use_cav 4 sweep over k in
+    # {0.25, 0.5, 1, 2} x gamma in {2, 4, 8}); k=2, gamma=8 was best on every IoU.
+    parser.add_argument(
+        "--levy_gateway_gamma",
+        type=float,
+        default=8.0,
+        help="temperature gamma for --levy_gateway",
+    )
+    parser.add_argument(
+        "--levy_gateway_k",
+        type=float,
+        default=2.0,
+        help="gate power k for --levy_gateway (0 disables the gate)",
+    )
+    parser.add_argument(
         "--num_workers",
         type=int,
         default=4,
@@ -191,6 +213,17 @@ def main():
     ]
 
     hypes = yaml_utils.load_yaml(None, opt)
+
+    if opt.levy_gateway:
+        levy_cfg = hypes["model"]["args"]["fusion_backbone"].setdefault("levy", {})
+        levy_cfg["gateway"] = {
+            "enable": True,
+            "gate_power": opt.levy_gateway_k,
+            "temp_gamma": opt.levy_gateway_gamma,
+            "rate_tau": 0.5,
+            "levels": [0],
+            "cameras_only": True,
+        }
 
     if "heter" in hypes:
         # hypes['heter']['lidar_channels'] = 16
