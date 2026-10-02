@@ -185,6 +185,27 @@ def test_parser():
         help="gate power k for --levy_gateway (0 disables the gate)",
     )
     parser.add_argument(
+        "--levy_gateway_fn",
+        type=str,
+        default="levy",
+        choices=["levy", "sigmoid"],
+        help="gate curve for --levy_gateway: 'levy' uses --levy_gateway_k/_gamma; "
+        "'sigmoid' multiplies by g_min + (1 - g_min) * sigmoid((x - t) / T) on the raw "
+        "occupancy logit x, set by --levy_gateway_floor/_center/_temp",
+    )
+    parser.add_argument(
+        "--levy_gateway_floor", type=float, default=0.5,
+        help="g_min for --levy_gateway_fn sigmoid",
+    )
+    parser.add_argument(
+        "--levy_gateway_center", type=float, default=-3.0,
+        help="t (raw logit) for --levy_gateway_fn sigmoid",
+    )
+    parser.add_argument(
+        "--levy_gateway_temp", type=float, default=1.0,
+        help="T (logits) for --levy_gateway_fn sigmoid",
+    )
+    parser.add_argument(
         "--num_workers",
         type=int,
         default=4,
@@ -218,9 +239,13 @@ def main():
         levy_cfg = hypes["model"]["args"]["fusion_backbone"].setdefault("levy", {})
         levy_cfg["gateway"] = {
             "enable": True,
+            "gate_fn": opt.levy_gateway_fn,
             "gate_power": opt.levy_gateway_k,
             "temp_gamma": opt.levy_gateway_gamma,
             "rate_tau": 0.5,
+            "gate_floor": opt.levy_gateway_floor,
+            "gate_center": opt.levy_gateway_center,
+            "gate_temp": opt.levy_gateway_temp,
             "levels": [0],
             "cameras_only": True,
         }
