@@ -145,6 +145,33 @@ def false_positive_rate(result_stat, iou):
     return float(fp.sum() / fp.shape[0])
 
 
+def f_beta_scores(result_stat, iou, beta=2.0):
+    """
+    F-beta at ``iou`` over every detection kept by post-processing, plus the
+    best F-beta over score cut-offs and the score threshold that achieves it.
+    Ties in score are never split, since a threshold can't separate them.
+    """
+    stat = result_stat[iou]
+    tp = np.array(stat["tp"], dtype=np.float64)
+    score = np.array(stat["score"], dtype=np.float64)
+    gt_total = stat["gt"]
+    if tp.shape[0] == 0 or gt_total == 0:
+        return float("nan"), float("nan"), float("nan")
+
+    order = np.argsort(-score, kind="stable")
+    score = score[order]
+    tp_cum = np.cumsum(tp[order])
+    prec = tp_cum / np.arange(1, tp_cum.shape[0] + 1)
+    rec = tp_cum / gt_total
+    b2 = beta * beta
+    denom = b2 * prec + rec
+    f = np.where(denom > 0, (1 + b2) * prec * rec / np.maximum(denom, 1e-12), 0.0)
+
+    cut = np.r_[score[:-1] != score[1:], True]
+    best = np.flatnonzero(cut)[np.argmax(f[cut])]
+    return float(f[-1]), float(f[best]), float(score[best])
+
+
 def eval_final_results(result_stat, save_path, infer_info=None):
     dump_dict = {}
 
@@ -155,6 +182,10 @@ def eval_final_results(result_stat, save_path, infer_info=None):
     fpr_30 = false_positive_rate(result_stat, 0.30)
     fpr_50 = false_positive_rate(result_stat, 0.50)
     fpr_70 = false_positive_rate(result_stat, 0.70)
+
+    f2_30, f2max_30, f2thr_30 = f_beta_scores(result_stat, 0.30)
+    f2_50, f2max_50, f2thr_50 = f_beta_scores(result_stat, 0.50)
+    f2_70, f2max_70, f2thr_70 = f_beta_scores(result_stat, 0.70)
 
     dump_dict.update(
         {
@@ -168,6 +199,15 @@ def eval_final_results(result_stat, save_path, infer_info=None):
             "fp_rate_30": fpr_30,
             "fp_rate_50": fpr_50,
             "fp_rate_70": fpr_70,
+            "f2_30": f2_30,
+            "f2_50": f2_50,
+            "f2_70": f2_70,
+            "f2_max_30": f2max_30,
+            "f2_max_50": f2max_50,
+            "f2_max_70": f2max_70,
+            "f2_max_thresh_30": f2thr_30,
+            "f2_max_thresh_50": f2thr_50,
+            "f2_max_thresh_70": f2thr_70,
         }
     )
     if infer_info is None:
@@ -186,6 +226,17 @@ def eval_final_results(result_stat, save_path, infer_info=None):
         "The average False Positive rate at IOU 0.3 is %.2f, "
         "The average False Positive rate at IOU 0.5 is %.2f, "
         "The average False Positive rate at IOU 0.7 is %.2f" % (fpr_30, fpr_50, fpr_70)
+    )
+    print(
+        "The F2 score at IOU 0.3 is %.4f, "
+        "The F2 score at IOU 0.5 is %.4f, "
+        "The F2 score at IOU 0.7 is %.4f" % (f2_30, f2_50, f2_70)
+    )
+    print(
+        "The best F2 over score thresholds at IOU 0.3 is %.4f (score >= %.3f), "
+        "at IOU 0.5 is %.4f (score >= %.3f), "
+        "at IOU 0.7 is %.4f (score >= %.3f)"
+        % (f2max_30, f2thr_30, f2max_50, f2thr_50, f2max_70, f2thr_70)
     )
 
     return ap_30, ap_50, ap_70
