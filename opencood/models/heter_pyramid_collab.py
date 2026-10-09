@@ -168,9 +168,21 @@ class HeterPyramidCollab(nn.Module):
                 args["compressor"]["input_dim"], args["compressor"]["compress_ratio"]
             )
 
+        # Where2comm's confidence map for the comm mask: the shared detection head
+        # on one agent's own (unfused) multi-scale features.
+        comm_mask = getattr(self.pyramid_backbone, "comm_mask", None)
+        if comm_mask is not None:
+            comm_mask.set_detector(self._single_agent_cls)
+
         self.model_train_init()
         # check again which module is not fixed.
         check_trainable_module(self)
+
+    def _single_agent_cls(self, feature_list):
+        feature = self.pyramid_backbone.decode_multiscale_feature(feature_list)
+        if self.shrink_flag:
+            feature = self.shrink_conv(feature)
+        return self.cls_head(feature)
 
     def model_train_init(self):
         # if compress, only make compressor trainable

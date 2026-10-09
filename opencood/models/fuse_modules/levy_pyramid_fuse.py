@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from opencood.models.LevyHooks import build_gateway_hook
+from opencood.models.LevyHooks import build_comm_mask, build_gateway_hook
 from opencood.models.fuse_modules.fusion_in_one import regroup
 from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
 from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
@@ -534,6 +534,11 @@ class LevyPyramidFusion(PyramidFusion):
         # Parameter-free, so the state_dict is unchanged either way.
         self.gateway = build_gateway_hook(
             levy_cfg.get("gateway"), num_levels=self.num_levels)
+        # Sparse transmission (built by PyramidFusion from fusion_backbone.comm_mask);
+        # the older levy.comm_mask location still works.
+        if levy_cfg.get("comm_mask"):
+            self.comm_mask = build_comm_mask(
+                levy_cfg.get("comm_mask"), num_levels=self.num_levels)
 
         print(
             f"Levy pyramid fusion: tau={self.tau}, gamma={gamma}, "
@@ -640,6 +645,8 @@ class LevyPyramidFusion(PyramidFusion):
         level_dev = []
         if self.gateway is not None:
             self.gateway.begin_forward()
+        if self.comm_mask is not None:
+            self.comm_mask.begin_forward(occ_map_list, feature_list)
 
         for i in range(self.num_levels):
             occ_map = occ_map_list[i]
@@ -684,6 +691,10 @@ class LevyPyramidFusion(PyramidFusion):
                     )
 
                 score = score * cam_crop_mask
+
+            if self.comm_mask is not None:
+                feature_list[i], score = self.comm_mask.apply(
+                    i, feature_list[i], score, occ_map, record_len)
 
             fused, log_evidence, disagreement, n_valid, aux, decoded, agent_dev = (
                 levy_weighted_fuse(

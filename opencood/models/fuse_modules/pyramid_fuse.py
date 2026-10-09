@@ -5,6 +5,7 @@ import torch
 from torch import nn
 
 from opencood.models.fuse_modules.fusion_in_one import regroup
+from opencood.models.LevyHooks.comm_mask import build_comm_mask
 from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
 from opencood.models.sub_modules.resblock import Bottleneck, ResNetModified
 from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
@@ -92,6 +93,13 @@ class PyramidFusion(ResNetBEVBackbone):
                 nn.Conv2d(self.model_cfg["num_filters"][i], 1, kernel_size=1),
             )
 
+        # Sparse transmission: each collaborator sends only part of its cells,
+        # chosen from its own foreground maps. None unless `comm_mask.enable`
+        # (opencood/models/LevyHooks/comm_mask.py). Parameter-free.
+        self.comm_mask = build_comm_mask(
+            model_cfg.get("comm_mask"), num_levels=self.num_levels,
+            where=type(self).__name__)
+
     def forward_single(self, spatial_features):
         """
         This is used for single agent pass.
@@ -148,10 +156,14 @@ class PyramidFusion(ResNetBEVBackbone):
 
         feature_list = self.get_multiscale_feature(spatial_features)
         fused_feature_list = []
-        occ_map_list = []
+        occ_map_list = [
+            getattr(self, f"single_head_{i}")(feature_list[i])  # [N, 1, H, W]
+            for i in range(self.num_levels)
+        ]
+        if self.comm_mask is not None:
+            self.comm_mask.begin_forward(occ_map_list, feature_list)
         for i in range(self.num_levels):
-            occ_map = eval(f"self.single_head_{i}")(feature_list[i])  # [N, 1, H, W]
-            occ_map_list.append(occ_map)
+            occ_map = occ_map_list[i]
             score = torch.sigmoid(occ_map) + 1e-4
 
             if crop_mask_flag and not self.training:
@@ -183,6 +195,10 @@ class PyramidFusion(ResNetBEVBackbone):
                     )
 
                 score = score * cam_crop_mask
+
+            if self.comm_mask is not None:
+                feature_list[i], score = self.comm_mask.apply(
+                    i, feature_list[i], score, occ_map, record_len)
 
             fused_feature_list.append(
                 weighted_fuse(

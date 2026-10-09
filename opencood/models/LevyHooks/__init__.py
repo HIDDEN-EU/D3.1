@@ -19,6 +19,7 @@ block is absent or carries ``enable: false``, and prints one greppable line
     print(LevyHooks.summary())
 """
 
+from opencood.models.LevyHooks.comm_mask import CommMask, build_comm_mask
 from opencood.models.LevyHooks.common import active_hooks, reset_registry, summary
 from opencood.models.LevyHooks.feature_gateway import (GatewayHook,
                                                        LevyFeatureGateway,
@@ -26,6 +27,8 @@ from opencood.models.LevyHooks.feature_gateway import (GatewayHook,
                                                        build_gateway_hook)
 
 __all__ = [
+    "CommMask",
+    "build_comm_mask",
     "GatewayHook",
     "LevyFeatureGateway",
     "SigmoidFeatureGateway",

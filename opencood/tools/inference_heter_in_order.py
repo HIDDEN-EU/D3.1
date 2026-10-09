@@ -206,6 +206,45 @@ def test_parser():
         help="T (logits) for --levy_gateway_fn sigmoid",
     )
     parser.add_argument(
+        "--comm_mask",
+        type=str,
+        default=None,
+        choices=["evidence", "evidence_ms", "det_conf", "random"],
+        help="sparse communication: every collaborator (never the ego) transmits only "
+        "the top --comm_rate of its cells at each pyramid level, ranked by its own "
+        "evidence ('evidence' = the occupancy head), its cross-level evidence "
+        "('evidence_ms'), Where2comm's detection-head confidence map ('det_conf') "
+        "or at random; overrides "
+        "model.args.fusion_backbone.comm_mask",
+    )
+    parser.add_argument(
+        "--comm_rate", type=float, default=0.1,
+        help="fraction of each collaborator's cells sent under --comm_mask",
+    )
+    parser.add_argument(
+        "--comm_thr", type=float, default=None,
+        help="keep cells whose probability (occupancy for evidence, detection "
+        "confidence for det_conf) is >= this instead of a fixed rate",
+    )
+    parser.add_argument(
+        "--comm_seed", type=int, default=0, help="seed for --comm_mask random",
+    )
+    parser.add_argument(
+        "--comm_ms_space", type=str, default="prob", choices=["prob", "logit", "lambda"],
+        help="what --comm_mask evidence_ms averages over levels: sigmoid prob, raw "
+        "logit, or the un-normalised intensity exp(gamma * S)",
+    )
+    parser.add_argument(
+        "--comm_ms_gamma", type=float, default=1.0,
+        help="gamma for --comm_ms_space lambda",
+    )
+    parser.add_argument(
+        "--frame_subset",
+        type=int,
+        default=None,
+        help="run N frames evenly spaced over the split (representative quick run)",
+    )
+    parser.add_argument(
         "--num_workers",
         type=int,
         default=4,
@@ -249,6 +288,24 @@ def main():
             "levels": [0],
             "cameras_only": True,
         }
+
+    if opt.comm_mask:
+        hypes["model"]["args"]["fusion_backbone"]["comm_mask"] = {
+            "enable": True,
+            "select": opt.comm_mask,
+            "rate": opt.comm_rate,
+            "threshold": opt.comm_thr,
+            "seed": opt.comm_seed,
+            "ms_space": opt.comm_ms_space,
+            "ms_gamma": opt.comm_ms_gamma,
+        }
+        opt.note += f"_comm_{opt.comm_mask}_" + (
+            f"thr{opt.comm_thr:g}" if opt.comm_thr is not None else f"r{opt.comm_rate:g}")
+        if opt.comm_mask == "evidence_ms" and opt.comm_ms_space != "prob":
+            opt.note += f"_{opt.comm_ms_space}" + (
+                f"{opt.comm_ms_gamma:g}" if opt.comm_ms_space == "lambda" else "")
+        if opt.comm_mask == "random" and opt.comm_seed:
+            opt.note += f"_s{opt.comm_seed}"
 
     if "heter" in hypes:
         # hypes['heter']['lidar_channels'] = 16
@@ -419,6 +476,11 @@ def main():
         if opt.dataset_subset:
             print("Using Subset of DATASET!")
             loader_dataset = Subset(opencood_dataset, range(1200, 1305))
+        if opt.frame_subset is not None:
+            idx = np.linspace(0, len(loader_dataset) - 1, opt.frame_subset)
+            idx = sorted(set(int(round(x)) for x in idx))
+            print(f"Using {len(idx)} evenly spaced frames!")
+            loader_dataset = Subset(loader_dataset, idx)
         if opt.max_frames is not None:
             print(f"Using only the first {opt.max_frames} frames!")
             loader_dataset = Subset(
@@ -505,6 +567,13 @@ def main():
             else None
         )
 
+        comm_mask = (
+            getattr(getattr(model, "pyramid_backbone", None), "comm_mask", None)
+            if opt.comm_mask else None
+        )
+        # per level: [cells sent, cells under full communication, channels]
+        comm_tally = {}
+
         if opt.measure_perf:
             WARMUP_ITERS = 5
             perf_timings = []
@@ -581,6 +650,12 @@ def main():
                         "Only single, no, no_w_uncertainty, early, late and intermediate"
                         "fusion is supported."
                     )
+
+                if comm_mask is not None:
+                    for st in comm_mask.stats:
+                        t = comm_tally.setdefault(st["level"], [0, 0, st["channels"]])
+                        t[0] += st["sent_cells"]
+                        t[1] += st["full_cells"]
 
                 if opt.measure_perf:
                     if use_cuda_events:
@@ -752,6 +827,25 @@ def main():
         _, ap50, ap70 = eval_utils.eval_final_results(
             result_stat, opt.model_dir, infer_info
         )
+
+        if comm_mask is not None:
+            # Feature volume in floats; the 1-channel score sent with each kept
+            # cell is counted too. Ego-only frames contribute nothing.
+            sent = sum(t[0] * (t[2] + 1) for t in comm_tally.values())
+            full = sum(t[1] * t[2] for t in comm_tally.values())
+            comm = {
+                "comm_mask": comm_mask.extra_repr(),
+                "comm_frac_per_level": {
+                    int(l): float(t[0] / max(t[1], 1)) for l, t in sorted(comm_tally.items())},
+                "comm_frac_volume": float(sent / max(full, 1)),
+                "comm_floats_per_frame": float(sent / max(len(loader_dataset), 1)),
+                "full_floats_per_frame": float(full / max(len(loader_dataset), 1)),
+            }
+            print(comm)
+            eval_path = os.path.join(opt.model_dir, f"eval_{infer_info}.yaml")
+            dump = yaml_utils.load_yaml(eval_path)
+            dump.update(comm)
+            yaml_utils.save_yaml(dump, eval_path)
 
         if rescorer is not None:
             print(rescorer.summary())
