@@ -1,15 +1,16 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import glob
 import os
-import sys
 import re
+import sys
+
 
 def get_number_from_filename(filename):
-    match = re.search(r'net_epoch(\d+).pth', filename)
+    match = re.search(r"net_epoch(\d+).pth", filename)
     return int(match.group(1)) if match else 0
+
 
 def clean_all_numeric_checkpoint(path):
     """
@@ -30,6 +31,6 @@ if __name__ == "__main__":
     sub_dirs = os.listdir(path)
     for sub_dir in sub_dirs:
         if os.path.isdir(os.path.join(path, sub_dir)):
-            print("Try to clean {}".format(os.path.join(path, sub_dir)))
+            print(f"Try to clean {os.path.join(path, sub_dir)}")
             clean_all_numeric_checkpoint(os.path.join(path, sub_dir))
     clean_all_numeric_checkpoint(path)

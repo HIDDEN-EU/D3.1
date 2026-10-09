@@ -25,6 +25,7 @@ Usage
 from __future__ import annotations
 
 import time
+
 import numpy as np
 import torch
 
@@ -34,15 +35,15 @@ class PerfProfiler:
 
     def __init__(self, use_cuda: bool):
         self.use_cuda = use_cuda
-        self.sub_timings: dict[str, list[float]] = {}   # seconds
-        self.sub_mem:     dict[str, list[float]] = {}   # MB, CUDA only
+        self.sub_timings: dict[str, list[float]] = {}  # seconds
+        self.sub_mem: dict[str, list[float]] = {}  # MB, CUDA only
         self._hooks: list = []
 
     # ------------------------------------------------------------------
     # Hook registration
     # ------------------------------------------------------------------
 
-    def hook_model(self, model, prefixes=('encoder_', 'backbone_', 'aligner_')):
+    def hook_model(self, model, prefixes=("encoder_", "backbone_", "aligner_")):
         """Register pre/post forward hooks on direct children of *model* whose
         names start with any entry in *prefixes*.
 
@@ -62,6 +63,7 @@ class PerfProfiler:
         sub_mem = self.sub_mem
 
         if self.use_cuda:
+
             def pre(mod, inp):
                 torch.cuda.synchronize()
                 mod._perf_mem_before = torch.cuda.memory_allocated()
@@ -74,10 +76,13 @@ class PerfProfiler:
                 end.record()
                 torch.cuda.synchronize()
                 sub_timings.setdefault(key, []).append(
-                    mod._perf_start_evt.elapsed_time(end) / 1000.0)
+                    mod._perf_start_evt.elapsed_time(end) / 1000.0
+                )
                 sub_mem.setdefault(key, []).append(
-                    (torch.cuda.memory_allocated() - mod._perf_mem_before) / (1024 ** 2))
+                    (torch.cuda.memory_allocated() - mod._perf_mem_before) / (1024**2)
+                )
         else:
+
             def pre(mod, inp):
                 mod._perf_t0 = time.time()
 
@@ -108,7 +113,7 @@ class PerfProfiler:
 
         if not cpu_only and self.use_cuda:
             start_evt = torch.cuda.Event(enable_timing=True)
-            end_evt   = torch.cuda.Event(enable_timing=True)
+            end_evt = torch.cuda.Event(enable_timing=True)
 
             def wrapper(*a, **kw):
                 torch.cuda.synchronize()
@@ -118,14 +123,17 @@ class PerfProfiler:
                 end_evt.record()
                 torch.cuda.synchronize()
                 sub_timings.setdefault(key, []).append(
-                    start_evt.elapsed_time(end_evt) / 1000.0)
+                    start_evt.elapsed_time(end_evt) / 1000.0
+                )
                 sub_mem.setdefault(key, []).append(
-                    (torch.cuda.memory_allocated() - mem_before) / (1024 ** 2))
+                    (torch.cuda.memory_allocated() - mem_before) / (1024**2)
+                )
                 return result
         else:
+
             def wrapper(*a, **kw):
                 if self.use_cuda:
-                    torch.cuda.synchronize()   # drain GPU before CPU timer starts
+                    torch.cuda.synchronize()  # drain GPU before CPU timer starts
                 t0 = time.time()
                 result = orig(*a, **kw)
                 sub_timings.setdefault(key, []).append(time.time() - t0)
@@ -157,10 +165,14 @@ class PerfProfiler:
         """Return the total size of *module*'s parameters + buffers in MB."""
         total = sum(p.numel() * p.element_size() for p in module.parameters())
         total += sum(b.numel() * b.element_size() for b in module.buffers())
-        return total / (1024 ** 2)
+        return total / (1024**2)
 
-    def report_weight_lines(self, model, prefixes=('encoder_', 'backbone_', 'aligner_'),
-                            extra_modules: dict | None = None) -> list[str]:
+    def report_weight_lines(
+        self,
+        model,
+        prefixes=("encoder_", "backbone_", "aligner_"),
+        extra_modules: dict | None = None,
+    ) -> list[str]:
         """Return formatted lines showing parameter+buffer memory for each
         matched direct child of *model* plus any entries in *extra_modules*.
 
@@ -172,7 +184,7 @@ class PerfProfiler:
                        are not direct children or use a different name
                        (e.g. {'fusion': model.pyramid_backbone}).
         """
-        lines = ['  -- model weight sizes --']
+        lines = ["  -- model weight sizes --"]
         total_mb = 0.0
 
         for mod_name, submod in model.named_children():
@@ -193,8 +205,9 @@ class PerfProfiler:
     # Reporting
     # ------------------------------------------------------------------
 
-    def report_lines(self, e2e_mean_ms: float,
-                     timed_prefixes=('encoder_', 'backbone_', 'aligner_')) -> list[str]:
+    def report_lines(
+        self, e2e_mean_ms: float, timed_prefixes=("encoder_", "backbone_", "aligner_")
+    ) -> list[str]:
         """Return a list of formatted breakdown strings to append to a perf report.
 
         Components are shown in sorted order by key name, then fusion, then
@@ -204,48 +217,57 @@ class PerfProfiler:
         total_s = 0.0
 
         # Named components (encoder/backbone/aligner etc.)
-        for key in sorted(k for k in self.sub_timings
-                          if any(k.startswith(p) for p in timed_prefixes)):
+        for key in sorted(
+            k for k in self.sub_timings if any(k.startswith(p) for p in timed_prefixes)
+        ):
             ts = self.sub_timings[key]
             ms = self.sub_mem.get(key, [])
             if not ts:
                 continue
             mean_s = float(np.mean(ts))
             total_s += mean_s
-            line = (f"  [{key}] mean (ms): {mean_s*1000:.3f}"
-                    f"  std: {float(np.std(ts))*1000:.3f}")
+            line = (
+                f"  [{key}] mean (ms): {mean_s * 1000:.3f}"
+                f"  std: {float(np.std(ts)) * 1000:.3f}"
+            )
             if ms:
-                line += (f"  mem_delta (MB): {float(np.mean(ms)):.1f}"
-                         f" \u00b1 {float(np.std(ms)):.1f}")
+                line += (
+                    f"  mem_delta (MB): {float(np.mean(ms)):.1f}"
+                    f" \u00b1 {float(np.std(ms)):.1f}"
+                )
             lines.append(line)
 
         # Fusion (GPU-timed)
-        if self.sub_timings.get('fusion'):
-            ts = self.sub_timings['fusion']
-            ms = self.sub_mem.get('fusion', [])
+        if self.sub_timings.get("fusion"):
+            ts = self.sub_timings["fusion"]
+            ms = self.sub_mem.get("fusion", [])
             mean_s = float(np.mean(ts))
             total_s += mean_s
-            line = (f"  [fusion] mean (ms): {mean_s*1000:.3f}"
-                    f"  std: {float(np.std(ts))*1000:.3f}")
+            line = (
+                f"  [fusion] mean (ms): {mean_s * 1000:.3f}"
+                f"  std: {float(np.std(ts)) * 1000:.3f}"
+            )
             if ms:
-                line += (f"  mem_delta (MB): {float(np.mean(ms)):.1f}"
-                         f" \u00b1 {float(np.std(ms)):.1f}")
+                line += (
+                    f"  mem_delta (MB): {float(np.mean(ms)):.1f}"
+                    f" \u00b1 {float(np.std(ms)):.1f}"
+                )
             lines.append(line)
 
         # Post-processing (CPU wall-clock)
-        if self.sub_timings.get('post_process'):
-            ts = self.sub_timings['post_process']
+        if self.sub_timings.get("post_process"):
+            ts = self.sub_timings["post_process"]
             mean_s = float(np.mean(ts))
             total_s += mean_s
             lines.append(
-                f"  [post_process] mean (ms): {mean_s*1000:.3f}"
-                f"  std: {float(np.std(ts))*1000:.3f}  (wall-clock, CPU-bound)"
+                f"  [post_process] mean (ms): {mean_s * 1000:.3f}"
+                f"  std: {float(np.std(ts)) * 1000:.3f}  (wall-clock, CPU-bound)"
             )
 
         # Unaccounted remainder
         if total_s > 0:
             lines.append(
-                f"  [unaccounted: heads/misc] mean (ms): {e2e_mean_ms - total_s*1000:.3f}"
+                f"  [unaccounted: heads/misc] mean (ms): {e2e_mean_ms - total_s * 1000:.3f}"
             )
 
         return lines

@@ -1,17 +1,18 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
-import torch
+import glob
 import os
+import re
 import sys
 from collections import OrderedDict
-import glob
-import re
+
+import torch
+
 
 def get_model_path_from_dir(model_dir):
     def findLastCheckpoint(save_dir):
-        file_list = glob.glob(os.path.join(save_dir, '*epoch*.pth'))
+        file_list = glob.glob(os.path.join(save_dir, "*epoch*.pth"))
         if file_list:
             epochs_exist = []
             for file_ in file_list:
@@ -20,10 +21,10 @@ def get_model_path_from_dir(model_dir):
             initial_epoch_ = max(epochs_exist)
         else:
             raise "No checkpoint!"
-        
-        return os.path.join(save_dir, f'net_epoch{initial_epoch_}.pth')
 
-    file_list = glob.glob(os.path.join(model_dir, 'net_epoch_bestval_at*.pth'))
+        return os.path.join(save_dir, f"net_epoch{initial_epoch_}.pth")
+
+    file_list = glob.glob(os.path.join(model_dir, "net_epoch_bestval_at*.pth"))
 
     if len(file_list):
         assert len(file_list) == 1
@@ -32,7 +33,7 @@ def get_model_path_from_dir(model_dir):
         model_path = findLastCheckpoint(model_dir)
 
     print(f"find {model_path}.")
-    
+
     return model_path
 
 
@@ -47,14 +48,14 @@ def rename_to_new_version(checkpoint_path):
     # 遍历旧的 state_dict，将所有的键进行重命名，然后保存到新的字典中
     for key in old_state_dict:
         # 将 'model.model' 替换为 'channel_align.model'
-        new_key = key.replace('model.model', 'channel_align.model')
-        new_key = new_key.replace('model.warpnet', 'warpnet')
+        new_key = key.replace("model.model", "channel_align.model")
+        new_key = new_key.replace("model.warpnet", "warpnet")
         new_state_dict[new_key] = old_state_dict[key]
-
 
     # 保存新的 checkpoint
     torch.save(new_state_dict, checkpoint_path)
     torch.save(old_state_dict, checkpoint_path.replace(".pth", ".pth.oldversion"))
+
 
 def remove_m4_trunk(checkpoint_path):
     # 加载 checkpoint
@@ -65,9 +66,11 @@ def remove_m4_trunk(checkpoint_path):
 
     # 遍历旧的 state_dict，将所有的键进行重命名，然后保存到新的字典中
     for key in old_state_dict:
-        if key.startswith("encoder_m4.camencode.trunk") or \
-            key.startswith('encoder_m4.camencode.final_conv') or \
-            key.startswith("encoder_m4.camencode.layer3"):
+        if (
+            key.startswith("encoder_m4.camencode.trunk")
+            or key.startswith("encoder_m4.camencode.final_conv")
+            or key.startswith("encoder_m4.camencode.layer3")
+        ):
             continue
 
         new_state_dict[key] = old_state_dict[key]
@@ -75,6 +78,7 @@ def remove_m4_trunk(checkpoint_path):
     # 保存新的 checkpoint
     torch.save(new_state_dict, checkpoint_path)
     torch.save(old_state_dict, checkpoint_path.replace(".pth", ".pth.oldversion"))
+
 
 def merge_dict(single_model_dict, stage1_model_dict):
     merged_dict = OrderedDict()
@@ -92,7 +96,7 @@ def merge_dict(single_model_dict, stage1_model_dict):
     for key in single_model_dict:
         # remove keys like 'layers_m4.resnet.layer2.0.bn1.bias' / 'cls_head_m4.weight' / 'shrink_conv_m4.weight'
         # from single_model_dict
-        if 'layers_m' in key or 'head_m' in key or 'shrink_conv_m' in key: 
+        if "layers_m" in key or "head_m" in key or "shrink_conv_m" in key:
             print(f"Pass {key}")
             continue
         merged_dict[key] = single_model_dict[key]
@@ -101,16 +105,18 @@ def merge_dict(single_model_dict, stage1_model_dict):
         merged_dict[key] = stage1_model_dict[key]
 
     return merged_dict
-    
+
+
 def merge_and_save(single_model_dir, stage1_model_dir, output_model_dir):
     single_model_path = get_model_path_from_dir(single_model_dir)
     stage1_model_path = get_model_path_from_dir(stage1_model_dir)
-    single_model_dict = torch.load(single_model_path, map_location='cpu')
-    stage1_model_dict = torch.load(stage1_model_path, map_location='cpu')
+    single_model_dict = torch.load(single_model_path, map_location="cpu")
+    stage1_model_dict = torch.load(stage1_model_path, map_location="cpu")
     merged_dict = merge_dict(single_model_dict, stage1_model_dict)
-    
-    output_model_path = os.path.join(output_model_dir, 'net_epoch1.pth')
+
+    output_model_path = os.path.join(output_model_dir, "net_epoch1.pth")
     torch.save(merged_dict, output_model_path)
+
 
 def merge_and_save_final(aligned_model_dir_list, output_model_dir):
     """
@@ -123,27 +129,27 @@ def merge_and_save_final(aligned_model_dir_list, output_model_dir):
     final_dict = OrderedDict()
     for aligned_model_dir in aligned_model_dir_list:
         aligned_model_path = get_model_path_from_dir(aligned_model_dir)
-        model_dict = torch.load(aligned_model_path, map_location='cpu')
+        model_dict = torch.load(aligned_model_path, map_location="cpu")
         final_dict = merge_dict(final_dict, model_dict)
 
-    output_model_path = os.path.join(output_model_dir, 'net_epoch1.pth')
+    output_model_path = os.path.join(output_model_dir, "net_epoch1.pth")
     torch.save(final_dict, output_model_path)
 
 
 if __name__ == "__main__":
     func = sys.argv[1]
-    if func == 'rename_to_new_version':
+    if func == "rename_to_new_version":
         checkpoint_path = sys.argv[2]
         rename_to_new_version(checkpoint_path)
-    elif func == 'remove_m4_trunk':
+    elif func == "remove_m4_trunk":
         checkpoint_path = sys.argv[2]
         remove_m4_trunk(checkpoint_path)
-    elif func == 'merge':
+    elif func == "merge":
         single_model_dir = sys.argv[2]
         stage1_model_dir = sys.argv[3]
         output_model_dir = sys.argv[4]
         merge_and_save(single_model_dir, stage1_model_dir, output_model_dir)
-    elif func == 'merge_final': 
+    elif func == "merge_final":
         merge_and_save_final(sys.argv[2:-1], sys.argv[-1])
     else:
         raise "This function not implemented"

@@ -2,21 +2,23 @@
 https://github.com/AmnonDrory/BestBuddiesRegistration/blob/main/code/bb_pc/utils/subsampling.py
 """
 
+from copy import deepcopy
+
 import numpy as np
 import open3d as o3d
 import pandas as pd
-from copy import deepcopy
 
 num_features = 3
+
 
 def calc_bin_inds(PC, n_bins, axis, mode):
     N = PC.shape[0]
     if "adaptive" in mode:
         inds = np.round(np.linspace(0, N, n_bins + 1)).astype(int)
         s = np.sort(PC[:, axis])
-        thresh = s[inds[1:]-1]
-    else: # "equally_spaced"
-        thresh = np.linspace(np.min(PC[:,axis]), np.max(PC[:,axis]),  n_bins + 1)
+        thresh = s[inds[1:] - 1]
+    else:  # "equally_spaced"
+        thresh = np.linspace(np.min(PC[:, axis]), np.max(PC[:, axis]), n_bins + 1)
         thresh = thresh[1:]
 
     bin_ind = np.zeros(N) + np.nan
@@ -24,39 +26,47 @@ def calc_bin_inds(PC, n_bins, axis, mode):
         is_cur = (PC[:, axis] <= thresh[i]) & np.isnan(bin_ind)
         bin_ind[is_cur] = i
 
-    assert np.sum(np.isnan(bin_ind)) == 0, "Error: not all samples were assigned to a bin"
+    assert np.sum(np.isnan(bin_ind)) == 0, (
+        "Error: not all samples were assigned to a bin"
+    )
 
     return bin_ind
+
 
 def voxelGrid_filter_inner(PC, num_samples, mode):
 
     if "equal_nbins_per_axis" in mode:
-        n_bins = int(np.ceil(num_samples ** (1. / 3)))
+        n_bins = int(np.ceil(num_samples ** (1.0 / 3)))
         n_bins_x = n_bins
         n_bins_y = n_bins
         n_bins_z = n_bins
     else:
         span = []
         for axis in range(3):
-            span.append( np.max(PC[:,axis])-np.min(PC[:,axis]) )
-        normalized_num_samples = num_samples * (span[0]**2 / (span[1]*span[2]))
-        n_bins_x = int(np.ceil(normalized_num_samples ** (1. / 3)))
-        n_bins_y = int(np.ceil(n_bins_x * (span[1]/span[0])))
+            span.append(np.max(PC[:, axis]) - np.min(PC[:, axis]))
+        normalized_num_samples = num_samples * (span[0] ** 2 / (span[1] * span[2]))
+        n_bins_x = int(np.ceil(normalized_num_samples ** (1.0 / 3)))
+        n_bins_y = int(np.ceil(n_bins_x * (span[1] / span[0])))
         n_bins_z = int(np.ceil(n_bins_x * (span[2] / span[0])))
         assert (n_bins_x * n_bins_y * n_bins_z) >= num_samples, "Error"
     x_bin_inds = calc_bin_inds(PC, n_bins_x, 0, mode)
     y_bin_inds = calc_bin_inds(PC, n_bins_y, 1, mode)
     z_bin_inds = calc_bin_inds(PC, n_bins_z, 2, mode)
 
-    data = np.hstack([x_bin_inds.reshape([-1,1]),
-                      y_bin_inds.reshape([-1,1]),
-                      z_bin_inds.reshape([-1,1]),
-                      PC])
+    data = np.hstack(
+        [
+            x_bin_inds.reshape([-1, 1]),
+            y_bin_inds.reshape([-1, 1]),
+            z_bin_inds.reshape([-1, 1]),
+            PC,
+        ]
+    )
 
-    df = pd.DataFrame(data, columns=['x_ind', 'y_ind', 'z_ind', 'x', 'y', 'z'])
-    newPC = np.array(df.groupby(['x_ind', 'y_ind', 'z_ind']).mean())
+    df = pd.DataFrame(data, columns=["x_ind", "y_ind", "z_ind", "x", "y", "z"])
+    newPC = np.array(df.groupby(["x_ind", "y_ind", "z_ind"]).mean())
 
     return newPC
+
 
 def voxelGrid_filter(PC, num_requested_samples, mode):
     """
@@ -83,16 +93,20 @@ def voxelGrid_filter(PC, num_requested_samples, mode):
         newPC = voxelGrid_filter_inner(PC, num_samples, mode)
         new_N = newPC.shape[0]
         newPC_history.append(newPC)
-        relative_error_in_size = (new_N/float(num_requested_samples)) -1
+        relative_error_in_size = (new_N / float(num_requested_samples)) - 1
         rel_history.append(relative_error_in_size)
         if (relative_error_in_size < 0) or (relative_error_in_size > TOLERANCE):
             best_ind = np.argmin(np.abs(rel_history))
-            if (len(rel_history) - best_ind > MAX_DIVERGENCE_TIME) and (np.max(rel_history) > 0):
-                    done = True
+            if (len(rel_history) - best_ind > MAX_DIVERGENCE_TIME) and (
+                np.max(rel_history) > 0
+            ):
+                done = True
             else:
-                num_samples = int(np.ceil(num_samples*float(num_requested_samples)/new_N))
-                if (np.max(rel_history) < 0):
-                    num_samples = int(ACCELERATION_FACTOR*num_samples)
+                num_samples = int(
+                    np.ceil(num_samples * float(num_requested_samples) / new_N)
+                )
+                if np.max(rel_history) < 0:
+                    num_samples = int(ACCELERATION_FACTOR * num_samples)
 
         else:
             done = True
@@ -102,21 +116,24 @@ def voxelGrid_filter(PC, num_requested_samples, mode):
 
     if len(rel_history) >= MAX_ATTEMPTS:
         assert False, "voxelGrid_filter could not supply required number of samples"
-        print("Error: voxelGrid_filter could not supply required number of samples, recovering")
+        print(
+            "Error: voxelGrid_filter could not supply required number of samples, recovering"
+        )
         best_ind = np.argmax(rel_history)
         return newPC_history[best_ind]
 
     rel_history_above_only = np.array(rel_history)
-    rel_history_above_only[rel_history_above_only<0] = np.inf
+    rel_history_above_only[rel_history_above_only < 0] = np.inf
     best_ind_above = np.argmin(rel_history_above_only)
 
     newPC = newPC_history[best_ind_above]
-    if 'exact_number' in mode:
+    if "exact_number" in mode:
         p = np.random.permutation(newPC.shape[0])
         inds = p[:num_requested_samples]
-        newPC = newPC[inds,:]
+        newPC = newPC[inds, :]
 
     return newPC
+
 
 def voxel_filter(pcd, N):
     # pcd is of open3d point cloud class
@@ -126,14 +143,16 @@ def voxel_filter(pcd, N):
         pcd = tmp
     K = np.shape(pcd.points)[0]
     vs = 1e-3
-    while K>N:
+    while K > N:
         pcd = o3d.geometry.voxel_down_sample(pcd, voxel_size=vs)
         vs *= 2
         K = np.shape(pcd.points)[0]
     return pcd
 
+
 def calc_distances(p0, points):
     return ((p0 - points) ** 2).sum(axis=1)
+
 
 def fps_from_given_pc(pts, K, given_pc):
     """
@@ -146,18 +165,21 @@ def fps_from_given_pc(pts, K, given_pc):
     """
     farthest_pts = np.zeros((K, 3))
     t = given_pc.shape[0]
-    farthest_pts[0:t,:] = given_pc
+    farthest_pts[0:t, :] = given_pc
 
     distances = calc_distances(farthest_pts[0], pts)
     for i in range(1, t):
-        distances = np.minimum(distances, calc_distances(farthest_pts[i,:], pts))
+        distances = np.minimum(distances, calc_distances(farthest_pts[i, :], pts))
 
     for i in range(t, K):
-        farthest_pts[i,:] = pts[np.argmax(distances),:]
-        distances = np.minimum(distances, calc_distances(farthest_pts[i,:], pts))
+        farthest_pts[i, :] = pts[np.argmax(distances), :]
+        distances = np.minimum(distances, calc_distances(farthest_pts[i, :], pts))
     return farthest_pts
 
-def get_random_subset(PC, num_samples, mode="farthest", submode=None, allow_overask=False):
+
+def get_random_subset(
+    PC, num_samples, mode="farthest", submode=None, allow_overask=False
+):
     """
     Subsample a point cloud, using either of various methods
 
@@ -181,7 +203,7 @@ def get_random_subset(PC, num_samples, mode="farthest", submode=None, allow_over
         result = PC[inds, :]
     elif mode == "farthest":
         first_ind = np.random.permutation(PC.shape[0])[0]
-        result = fps_from_given_pc(PC, num_samples, PC[first_ind:(first_ind+1), :])
+        result = fps_from_given_pc(PC, num_samples, PC[first_ind : (first_ind + 1), :])
     elif "voxel" in mode:
         if submode is None:
             submode = ["equal_nbins_per_axis"]
@@ -190,7 +212,7 @@ def get_random_subset(PC, num_samples, mode="farthest", submode=None, allow_over
         # we force it to have some by rendomly removing a small subset of the points
 
         keep_fraction = 0.9
-        num_keep = int(PC.shape[0]*keep_fraction)
+        num_keep = int(PC.shape[0] * keep_fraction)
         if num_samples < num_keep:
             PC = get_random_subset(PC, num_keep, mode="uniform")
         result = voxelGrid_filter(PC, num_samples, submode)
@@ -200,15 +222,16 @@ def get_random_subset(PC, num_samples, mode="farthest", submode=None, allow_over
 
     return result
 
+
 def subsample_fraction(PC, fraction):
     N = PC.shape[0]
     subset_size = int(np.round(N * fraction))
     inds = np.random.permutation(N)[:subset_size]
-    return PC[inds,:]
+    return PC[inds, :]
 
 
 def keep_closest(PC, max_dist):
-    R = np.sqrt(np.sum(PC ** 2, axis=1))
+    R = np.sqrt(np.sum(PC**2, axis=1))
     return PC[R <= max_dist, :]
 
 
@@ -226,6 +249,7 @@ def is_on_plane(PC, abc, thickness):
     predicted_road_z = np.matmul(all_xy1, abc.reshape([-1, 1])).flatten()
     res = np.abs(PC[:, 2] - predicted_road_z) <= thickness
     return res
+
 
 def remove_road(PC):
     mode = "plane"  # "constant_height"

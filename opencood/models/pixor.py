@@ -1,26 +1,25 @@
-# -*- coding: utf-8 -*-
 # Author: Hao Xiang <haxiang@g.ucla.edu>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 
 import math
 
-import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 def conv3x3(in_planes, out_planes, stride=1, bias=False):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                     padding=1, bias=bias)
+    return nn.Conv2d(
+        in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=bias
+    )
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, in_planes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
+        super().__init__()
         self.conv1 = conv3x3(in_planes, planes, stride, bias=True)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -51,18 +50,19 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, in_planes, planes, stride=1, downsample=None,
-                 use_bn=True):
-        super(Bottleneck, self).__init__()
+    def __init__(self, in_planes, planes, stride=1, downsample=None, use_bn=True):
+        super().__init__()
         bias = not use_bn
         self.use_bn = use_bn
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=bias)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-                               padding=1, bias=bias)
+        self.conv2 = nn.Conv2d(
+            planes, planes, kernel_size=3, stride=stride, padding=1, bias=bias
+        )
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1,
-                               bias=bias)
+        self.conv3 = nn.Conv2d(
+            planes, self.expansion * planes, kernel_size=1, bias=bias
+        )
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.downsample = downsample
         self.relu = nn.ReLU(inplace=True)
@@ -104,9 +104,8 @@ class Bottleneck(nn.Module):
 
 
 class BackBone(nn.Module):
-
     def __init__(self, block, num_block, geom, use_bn=True):
-        super(BackBone, self).__init__()
+        super().__init__()
 
         self.use_bn = use_bn
 
@@ -125,18 +124,18 @@ class BackBone(nn.Module):
         self.block5 = self._make_layer(block, 96, num_blocks=num_block[3])
 
         # Lateral layers
-        self.latlayer1 = nn.Conv2d(384, 196, kernel_size=1, stride=1,
-                                   padding=0)
-        self.latlayer2 = nn.Conv2d(256, 128, kernel_size=1, stride=1,
-                                   padding=0)
+        self.latlayer1 = nn.Conv2d(384, 196, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(256, 128, kernel_size=1, stride=1, padding=0)
         self.latlayer3 = nn.Conv2d(192, 96, kernel_size=1, stride=1, padding=0)
 
         # Top-down layers
-        self.deconv1 = nn.ConvTranspose2d(196, 128, kernel_size=3, stride=2,
-                                          padding=1, output_padding=1)
-        p = 0 if geom['label_shape'][1] == 175 else 1
-        self.deconv2 = nn.ConvTranspose2d(128, 96, kernel_size=3, stride=2,
-                                          padding=1, output_padding=(1, p))
+        self.deconv1 = nn.ConvTranspose2d(
+            196, 128, kernel_size=3, stride=2, padding=1, output_padding=1
+        )
+        p = 0 if geom["label_shape"][1] == 175 else 1
+        self.deconv2 = nn.ConvTranspose2d(
+            128, 96, kernel_size=3, stride=2, padding=1, output_padding=(1, p)
+        )
 
     def encode(self, x):
         x = self.conv1(x)
@@ -177,16 +176,25 @@ class BackBone(nn.Module):
         if self.use_bn:
             # downsample the H*W by 1/2
             downsample = nn.Sequential(
-                nn.Conv2d(self.in_planes, planes * block.expansion,
-                          kernel_size=1, stride=2, bias=False),
-                nn.BatchNorm2d(planes * block.expansion)
+                nn.Conv2d(
+                    self.in_planes,
+                    planes * block.expansion,
+                    kernel_size=1,
+                    stride=2,
+                    bias=False,
+                ),
+                nn.BatchNorm2d(planes * block.expansion),
             )
         else:
-            downsample = nn.Conv2d(self.in_planes, planes * block.expansion,
-                                   kernel_size=1, stride=2, bias=True)
+            downsample = nn.Conv2d(
+                self.in_planes,
+                planes * block.expansion,
+                kernel_size=1,
+                stride=2,
+                bias=True,
+            )
 
-        layers = [
-            block(self.in_planes, planes, stride=2, downsample=downsample)]
+        layers = [block(self.in_planes, planes, stride=2, downsample=downsample)]
 
         self.in_planes = planes * block.expansion
         for i in range(1, num_blocks):
@@ -211,13 +219,12 @@ class BackBone(nn.Module):
         So we choose bilinear upsample which supports arbitrary output sizes.
         """
         _, _, H, W = y.size()
-        return F.upsample(x, size=(H, W), mode='bilinear') + y
+        return F.upsample(x, size=(H, W), mode="bilinear") + y
 
 
 class Header(nn.Module):
-
     def __init__(self, use_bn=True):
-        super(Header, self).__init__()
+        super().__init__()
 
         self.use_bn = use_bn
         bias = not use_bn
@@ -274,7 +281,7 @@ class PIXOR(nn.Module):
     """
 
     def __init__(self, args):
-        super(PIXOR, self).__init__()
+        super().__init__()
         geom = args["geometry_param"]
         use_bn = args["use_bn"]
         self.backbone = BackBone(Bottleneck, [3, 6, 6, 3], geom, use_bn)
@@ -283,7 +290,7 @@ class PIXOR(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
@@ -295,16 +302,13 @@ class PIXOR(nn.Module):
         self.header.reghead.bias.data.fill_(0)
 
     def forward(self, data_dict):
-        bev_input = data_dict['processed_lidar']["bev_input"]
+        bev_input = data_dict["processed_lidar"]["bev_input"]
 
         features = self.backbone(bev_input)
         # cls -- (N, 1, W/4, L/4)
         # reg -- (N, 6, W/4, L/4)
         cls, reg = self.header(features)
 
-        output_dict = {
-            "cls": cls,
-            "reg": reg
-        }
+        output_dict = {"cls": cls, "reg": reg}
 
         return output_dict

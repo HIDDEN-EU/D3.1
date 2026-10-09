@@ -1,127 +1,130 @@
 # Author: Yangheng Zhao <zhaoyangheng-sjtu@sjtu.edu.cn>
 
-import os
 import pickle
-from collections import OrderedDict
-from typing import Dict
 from abc import abstractmethod
+from collections import OrderedDict
+
 import numpy as np
-import torch
 from torch.utils.data import Dataset
 
 from opencood.data_utils.augmentor.data_augmentor import DataAugmentor
-from opencood.utils.common_utils import read_json
-from opencood.utils.transformation_utils import tfm_to_pose
-from opencood.data_utils.pre_processor import build_preprocessor
 from opencood.data_utils.post_processor import build_postprocessor
+from opencood.data_utils.pre_processor import build_preprocessor
+from opencood.utils.transformation_utils import tfm_to_pose
+
 
 class V2XSIMBaseDataset(Dataset):
     """
-        First version.
-        Load V2X-sim 2.0 using yifan lu's pickle file. 
-        Only support LiDAR data. (even in hetero)
+    First version.
+    Load V2X-sim 2.0 using yifan lu's pickle file.
+    Only support LiDAR data. (even in hetero)
     """
 
-    def __init__(self,
-                 params: Dict,
-                 visualize: bool = False,
-                 train: bool = True):
+    def __init__(self, params: dict, visualize: bool = False, train: bool = True):
         self.params = params
         self.visualize = visualize
         self.train = train
 
         self.pre_processor = build_preprocessor(params["preprocess"], train)
         self.post_processor = build_postprocessor(params["postprocess"], train)
-        if 'data_augment' in params: # late and early
-            self.data_augmentor = DataAugmentor(params['data_augment'], train)
-        else: # intermediate
+        if "data_augment" in params:  # late and early
+            self.data_augmentor = DataAugmentor(params["data_augment"], train)
+        else:  # intermediate
             self.data_augmentor = None
 
         if self.train:
-            root_dir = params['root_dir']
+            root_dir = params["root_dir"]
         else:
-            root_dir = params['validate_dir']
+            root_dir = params["validate_dir"]
         self.root_dir = root_dir
 
         print("Dataset dir:", root_dir)
 
-        if 'train_params' not in params or \
-                'max_cav' not in params['train_params']:
+        if "train_params" not in params or "max_cav" not in params["train_params"]:
             self.max_cav = 5
         else:
-            self.max_cav = params['train_params']['max_cav']
+            self.max_cav = params["train_params"]["max_cav"]
 
-        self.load_lidar_file = True if 'lidar' in params['input_source'] or self.visualize else False
-        self.load_camera_file = True if 'camera' in params['input_source'] else False
-        self.load_depth_file = True if 'depth' in params['input_source'] else False
+        self.load_lidar_file = (
+            True if "lidar" in params["input_source"] or self.visualize else False
+        )
+        self.load_camera_file = True if "camera" in params["input_source"] else False
+        self.load_depth_file = True if "depth" in params["input_source"] else False
 
-        self.label_type = params['label_type'] # 'lidar' or 'camera'
-        assert self.label_type in ['lidar', 'camera']
+        self.label_type = params["label_type"]  # 'lidar' or 'camera'
+        assert self.label_type in ["lidar", "camera"]
 
-        self.generate_object_center = self.generate_object_center_lidar if self.label_type == "lidar" \
-                                            else self.generate_object_center_camera
+        self.generate_object_center = (
+            self.generate_object_center_lidar
+            if self.label_type == "lidar"
+            else self.generate_object_center_camera
+        )
         self.generate_object_center_single = self.generate_object_center
 
-        self.add_data_extension = \
-            params['add_data_extension'] if 'add_data_extension' \
-                                            in params else []
+        self.add_data_extension = (
+            params["add_data_extension"] if "add_data_extension" in params else []
+        )
 
         if "noise_setting" not in self.params:
-            self.params['noise_setting'] = OrderedDict()
-            self.params['noise_setting']['add_noise'] = False
-        
-        with open(self.root_dir, 'rb') as f:
+            self.params["noise_setting"] = OrderedDict()
+            self.params["noise_setting"]["add_noise"] = False
+
+        with open(self.root_dir, "rb") as f:
             dataset_info = pickle.load(f)
         self.dataset_info_pkl = dataset_info
 
         # TODO param: one as ego or all as ego?
-        self.ego_mode = 'one'  # "all"
+        self.ego_mode = "one"  # "all"
 
         self.reinitialize()
 
     def reinitialize(self):
         self.scene_database = OrderedDict()
-        if self.ego_mode == 'one':
+        if self.ego_mode == "one":
             self.len_record = len(self.dataset_info_pkl)
         else:
             raise NotImplementedError(self.ego_mode)
 
         for i, scene_info in enumerate(self.dataset_info_pkl):
             self.scene_database.update({i: OrderedDict()})
-            cav_num = scene_info['agent_num']
+            cav_num = scene_info["agent_num"]
             assert cav_num > 0
 
             if self.train:
                 cav_ids = 1 + np.random.permutation(cav_num)
             else:
                 cav_ids = list(range(1, cav_num + 1))
-            
 
             for j, cav_id in enumerate(cav_ids):
                 if j > self.max_cav - 1:
-                    print('too many cavs reinitialize')
+                    print("too many cavs reinitialize")
                     break
 
                 self.scene_database[i][cav_id] = OrderedDict()
 
-                self.scene_database[i][cav_id]['ego'] = j==0
+                self.scene_database[i][cav_id]["ego"] = j == 0
 
-                self.scene_database[i][cav_id]['lidar'] = scene_info[f'lidar_path_{cav_id}']
+                self.scene_database[i][cav_id]["lidar"] = scene_info[
+                    f"lidar_path_{cav_id}"
+                ]
                 # need to delete this line is running in /GPFS
-                self.scene_database[i][cav_id]['lidar'] = \
-                    self.scene_database[i][cav_id]['lidar'].replace("/GPFS/rhome/yifanlu/workspace/dataset/v2xsim2-complete", "dataset/V2X-Sim-2.0")
+                self.scene_database[i][cav_id]["lidar"] = self.scene_database[i][
+                    cav_id
+                ]["lidar"].replace(
+                    "/GPFS/rhome/yifanlu/workspace/dataset/v2xsim2-complete",
+                    "dataset/V2X-Sim-2.0",
+                )
 
-                self.scene_database[i][cav_id]['params'] = OrderedDict()
-                self.scene_database[i][cav_id][
-                    'params']['lidar_pose'] = tfm_to_pose(
-                        scene_info[f"lidar_pose_{cav_id}"]
-                    )  # [x, y, z, roll, pitch, yaw]
-                self.scene_database[i][cav_id]['params'][
-                    'vehicles'] = scene_info[f'labels_{cav_id}'][
-                        'gt_boxes_global']
-                self.scene_database[i][cav_id]['params'][
-                    'object_ids'] = scene_info[f'labels_{cav_id}'][
-                        'gt_object_ids'].tolist()
+                self.scene_database[i][cav_id]["params"] = OrderedDict()
+                self.scene_database[i][cav_id]["params"]["lidar_pose"] = tfm_to_pose(
+                    scene_info[f"lidar_pose_{cav_id}"]
+                )  # [x, y, z, roll, pitch, yaw]
+                self.scene_database[i][cav_id]["params"]["vehicles"] = scene_info[
+                    f"labels_{cav_id}"
+                ]["gt_boxes_global"]
+                self.scene_database[i][cav_id]["params"]["object_ids"] = scene_info[
+                    f"labels_{cav_id}"
+                ]["gt_object_ids"].tolist()
 
     def __len__(self) -> int:
         return self.len_record
@@ -167,18 +170,20 @@ class V2XSIMBaseDataset(Dataset):
         # }
         scene = self.scene_database[idx]
         for cav_id, cav_content in scene.items():
-            data[f'{cav_id}'] = OrderedDict()
-            data[f'{cav_id}']['ego'] = cav_content['ego']
+            data[f"{cav_id}"] = OrderedDict()
+            data[f"{cav_id}"]["ego"] = cav_content["ego"]
 
-            data[f'{cav_id}']['params'] = cav_content['params']
+            data[f"{cav_id}"]["params"] = cav_content["params"]
 
             # load the corresponding data into the dictionary
             nbr_dims = 4  # x,y,z,intensity
-            scan = np.fromfile(cav_content['lidar'], dtype='float32')
+            scan = np.fromfile(cav_content["lidar"], dtype="float32")
             points = scan.reshape((-1, 5))[:, :nbr_dims]
-            data[f'{cav_id}']['lidar_np'] = points
-            
-            data[f'{cav_id}']['modality_name'] = 'm1' # Currently, there is only lidar's api.
+            data[f"{cav_id}"]["lidar_np"] = points
+
+            data[f"{cav_id}"]["modality_name"] = (
+                "m1"  # Currently, there is only lidar's api.
+            )
 
         return data
 
@@ -209,7 +214,8 @@ class V2XSIMBaseDataset(Dataset):
         """
 
         return self.post_processor.generate_object_center_v2x(
-            cav_contents, reference_lidar_pose)
+            cav_contents, reference_lidar_pose
+        )
 
     def generate_object_center_camera(self, cav_contents, reference_lidar_pose):
         raise NotImplementedError()
@@ -229,13 +235,15 @@ class V2XSIMBaseDataset(Dataset):
         object_bbx_mask : np.ndarray
             Indicate which elements in object_bbx_center are padded.
         """
-        tmp_dict = {'lidar_np': lidar_np,
-                    'object_bbx_center': object_bbx_center,
-                    'object_bbx_mask': object_bbx_mask}
+        tmp_dict = {
+            "lidar_np": lidar_np,
+            "object_bbx_center": object_bbx_center,
+            "object_bbx_mask": object_bbx_mask,
+        }
         tmp_dict = self.data_augmentor.forward(tmp_dict)
 
-        lidar_np = tmp_dict['lidar_np']
-        object_bbx_center = tmp_dict['object_bbx_center']
-        object_bbx_mask = tmp_dict['object_bbx_mask']
+        lidar_np = tmp_dict["lidar_np"]
+        object_bbx_center = tmp_dict["object_bbx_center"]
+        object_bbx_mask = tmp_dict["object_bbx_mask"]
 
         return lidar_np, object_bbx_center, object_bbx_mask

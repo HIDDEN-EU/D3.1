@@ -15,13 +15,14 @@ def resolve_lidar_corrupt(params):
     (bool, float)
         ``ratio`` is meaningless when the flag is False.
     """
-    cfg = params.get('lidar_corrupt') or {}
-    enabled = bool(cfg.get('enabled', False))
-    ratio = float(cfg.get('dropout_ratio', 0.0))
+    cfg = params.get("lidar_corrupt") or {}
+    enabled = bool(cfg.get("enabled", False))
+    ratio = float(cfg.get("dropout_ratio", 0.0))
     if enabled and not (0.0 <= ratio < 1.0):
         raise ValueError(
             f"lidar_corrupt.dropout_ratio must be in [0, 1), got {ratio}. "
-            "A ratio of 1.0 would drop every point.")
+            "A ratio of 1.0 would drop every point."
+        )
     return (enabled and ratio > 0.0), ratio
 
 
@@ -34,13 +35,17 @@ def announce_lidar_corrupt(params, where):
     """
     enabled, ratio = resolve_lidar_corrupt(params)
     if enabled:
-        print(f"[lidar_corrupt] ACTIVE in {where}: dropping {ratio:.1%} of every "
-              f"agent's points. Set lidar_corrupt.enabled=false in the config, or "
-              f"pass --no_lidar_corrupt, for a clean run.")
-    elif (params.get('lidar_corrupt') or {}):
-        print(f"[lidar_corrupt] present but off in {where} "
-              f"(enabled={ (params.get('lidar_corrupt') or {}).get('enabled') }, "
-              f"dropout_ratio={ (params.get('lidar_corrupt') or {}).get('dropout_ratio') }).")
+        print(
+            f"[lidar_corrupt] ACTIVE in {where}: dropping {ratio:.1%} of every "
+            f"agent's points. Set lidar_corrupt.enabled=false in the config, or "
+            f"pass --no_lidar_corrupt, for a clean run."
+        )
+    elif params.get("lidar_corrupt") or {}:
+        print(
+            f"[lidar_corrupt] present but off in {where} "
+            f"(enabled={(params.get('lidar_corrupt') or {}).get('enabled')}, "
+            f"dropout_ratio={(params.get('lidar_corrupt') or {}).get('dropout_ratio')})."
+        )
     return enabled, ratio
 
 
@@ -63,9 +68,8 @@ def apply_lidar_corrupt(selected_cav_base, enabled, ratio, rng=None):
     """
     if not enabled:
         return
-    lidar = selected_cav_base.get('lidar_np')
+    lidar = selected_cav_base.get("lidar_np")
     if lidar is None or len(lidar) == 0:
         return
-    draw = (rng.random(len(lidar)) if rng is not None
-            else np.random.rand(len(lidar)))
-    selected_cav_base['lidar_np'] = lidar[draw > ratio]
+    draw = rng.random(len(lidar)) if rng is not None else np.random.rand(len(lidar))
+    selected_cav_base["lidar_np"] = lidar[draw > ratio]

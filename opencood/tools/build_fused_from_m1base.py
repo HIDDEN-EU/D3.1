@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Build the initial checkpoint for a LiDAR+Camera BEV fusion encoder
 (``fused_pyramid_collab`` / :class:`FusedPyramidCollab`) from a HEAL stage1
@@ -45,18 +44,33 @@ def build_parser():
     parser = argparse.ArgumentParser(
         description="Init a lidar+camera fused encoder from a HEAL stage1 lidar base."
     )
-    parser.add_argument('--m1_base_dir', type=str, required=True,
-                        help='HEAL stage1 lidar collaboration base log dir '
-                             '(contains net_epoch_bestval_at*.pth / net_epoch*.pth).')
-    parser.add_argument('--output_dir', type=str, required=True,
-                        help='Destination log dir for the fused stage. '
-                             'net_epoch1.pth is written here.')
-    parser.add_argument('--src_modality', type=str, default='m1',
-                        help="Modality name of the lidar encoder in the stage1 "
-                             "checkpoint (default: m1).")
-    parser.add_argument('--dst_modality', type=str, default=None,
-                        help="Modality name of the fused encoder in the target "
-                             "model (default: same as --src_modality).")
+    parser.add_argument(
+        "--m1_base_dir",
+        type=str,
+        required=True,
+        help="HEAL stage1 lidar collaboration base log dir "
+        "(contains net_epoch_bestval_at*.pth / net_epoch*.pth).",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        required=True,
+        help="Destination log dir for the fused stage. net_epoch1.pth is written here.",
+    )
+    parser.add_argument(
+        "--src_modality",
+        type=str,
+        default="m1",
+        help="Modality name of the lidar encoder in the stage1 "
+        "checkpoint (default: m1).",
+    )
+    parser.add_argument(
+        "--dst_modality",
+        type=str,
+        default=None,
+        help="Modality name of the fused encoder in the target "
+        "model (default: same as --src_modality).",
+    )
     return parser.parse_args()
 
 
@@ -66,7 +80,7 @@ def main():
 
     src_path = get_model_path_from_dir(opt.m1_base_dir)
     print(f"Loading HEAL stage1 lidar base: {src_path}")
-    src_state = torch.load(src_path, map_location='cpu')
+    src_state = torch.load(src_path, map_location="cpu")
 
     encoder_prefix = f"encoder_{opt.src_modality}."
     new_encoder_prefix = f"encoder_lidar_{dst_modality}."
@@ -75,7 +89,7 @@ def main():
     renamed, passthrough = 0, 0
     for key, value in src_state.items():
         if key.startswith(encoder_prefix):
-            new_key = new_encoder_prefix + key[len(encoder_prefix):]
+            new_key = new_encoder_prefix + key[len(encoder_prefix) :]
             renamed += 1
         else:
             new_key = key
@@ -90,18 +104,24 @@ def main():
         )
 
     os.makedirs(opt.output_dir, exist_ok=True)
-    out_path = os.path.join(opt.output_dir, 'net_epoch1.pth')
+    out_path = os.path.join(opt.output_dir, "net_epoch1.pth")
     torch.save(out_state, out_path)
 
-    print(f"  renamed   {renamed:4d} tensors  {encoder_prefix}* -> {new_encoder_prefix}*")
-    print(f"  copied    {passthrough:4d} tensors  (backbone / pyramid_backbone / "
-          f"shrink_conv / heads)")
+    print(
+        f"  renamed   {renamed:4d} tensors  {encoder_prefix}* -> {new_encoder_prefix}*"
+    )
+    print(
+        f"  copied    {passthrough:4d} tensors  (backbone / pyramid_backbone / "
+        f"shrink_conv / heads)"
+    )
     print(f"Wrote {out_path}  ({len(out_state)} tensors total)")
     print("\nNext:")
     print(f"  cp <fused-config>.yaml {opt.output_dir}/config.yaml")
-    print(f"  python opencood/tools/train.py -y <fused-config>.yaml "
-          f"--model_dir {opt.output_dir}")
+    print(
+        f"  python opencood/tools/train.py -y <fused-config>.yaml "
+        f"--model_dir {opt.output_dir}"
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

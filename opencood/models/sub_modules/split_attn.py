@@ -1,11 +1,11 @@
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class RadixSoftmax(nn.Module):
     def __init__(self, radix, cardinality):
-        super(RadixSoftmax, self).__init__()
+        super().__init__()
         self.radix = radix
         self.cardinality = cardinality
 
@@ -16,9 +16,7 @@ class RadixSoftmax(nn.Module):
 
         if self.radix > 1:
             # x: (B, L, 1, 3, C)
-            x = x.view(batch,
-                       cav_num,
-                       self.cardinality, self.radix, -1)
+            x = x.view(batch, cav_num, self.cardinality, self.radix, -1)
             x = F.softmax(x, dim=3)
             # B, 3LC
             x = x.reshape(batch, -1)
@@ -29,7 +27,7 @@ class RadixSoftmax(nn.Module):
 
 class SplitAttn(nn.Module):
     def __init__(self, input_dim):
-        super(SplitAttn, self).__init__()
+        super().__init__()
         self.input_dim = input_dim
 
         self.fc1 = nn.Linear(input_dim, input_dim, bias=False)
@@ -41,7 +39,7 @@ class SplitAttn(nn.Module):
 
     def forward(self, window_list):
         # window list: [(B, L, H, W, C) * 3]
-        assert len(window_list) == 3, 'only 3 windows are supported'
+        assert len(window_list) == 3, "only 3 windows are supported"
 
         sw, mw, bw = window_list[0], window_list[1], window_list[2]
         B, L = sw.shape[0], sw.shape[1]
@@ -56,8 +54,10 @@ class SplitAttn(nn.Module):
         # B L 1 1 3C
         x_attn = self.rsoftmax(x_attn).view(B, L, 1, 1, -1)
 
-        out = sw * x_attn[:, :, :, :, 0:self.input_dim] + \
-              mw * x_attn[:, :, :, :, self.input_dim:2*self.input_dim] +\
-              bw * x_attn[:, :, :, :, self.input_dim*2:]
+        out = (
+            sw * x_attn[:, :, :, :, 0 : self.input_dim]
+            + mw * x_attn[:, :, :, :, self.input_dim : 2 * self.input_dim]
+            + bw * x_attn[:, :, :, :, self.input_dim * 2 :]
+        )
 
         return out

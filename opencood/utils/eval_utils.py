@@ -1,14 +1,12 @@
-# -*- coding: utf-8 -*-
 # Author: Yifan Lu <yifan_lu@sjtu.edu.cn>
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 import os
 
 import numpy as np
-import torch
 
-from opencood.utils import common_utils
 from opencood.hypes_yaml import yaml_utils
+from opencood.utils import common_utils
 
 
 def voc_ap(rec, prec):
@@ -33,7 +31,7 @@ def voc_ap(rec, prec):
 
     ap = 0.0
     for i in i_list:
-        ap += ((mrec[i] - mrec[i - 1]) * mpre[i])
+        ap += (mrec[i] - mrec[i - 1]) * mpre[i]
     return ap, mrec, mpre
 
 
@@ -66,7 +64,7 @@ def caluclate_tp_fp(det_boxes, det_score, gt_boxes, result_stat, iou_thresh):
 
         # sort the prediction bounding box by score
         score_order_descend = np.argsort(-det_score)
-        det_score = det_score[score_order_descend] # from high to low
+        det_score = det_score[score_order_descend]  # from high to low
         det_polygon_list = list(common_utils.convert_format(det_boxes))
         gt_polygon_list = list(common_utils.convert_format(gt_boxes))
 
@@ -85,11 +83,10 @@ def caluclate_tp_fp(det_boxes, det_score, gt_boxes, result_stat, iou_thresh):
 
             gt_index = np.argmax(ious)
             gt_polygon_list.pop(gt_index)
-        result_stat[iou_thresh]['score'] += det_score.tolist()
-    result_stat[iou_thresh]['fp'] += fp
-    result_stat[iou_thresh]['tp'] += tp
-    result_stat[iou_thresh]['gt'] += gt
-
+        result_stat[iou_thresh]["score"] += det_score.tolist()
+    result_stat[iou_thresh]["fp"] += fp
+    result_stat[iou_thresh]["tp"] += tp
+    result_stat[iou_thresh]["gt"] += gt
 
 
 def calculate_ap(result_stat, iou):
@@ -103,16 +100,16 @@ def calculate_ap(result_stat, iou):
     """
     iou_5 = result_stat[iou]
 
-    fp = np.array(iou_5['fp'])
-    tp = np.array(iou_5['tp'])
-    score = np.array(iou_5['score'])
+    fp = np.array(iou_5["fp"])
+    tp = np.array(iou_5["tp"])
+    score = np.array(iou_5["score"])
     assert len(fp) == len(tp) and len(tp) == len(score)
 
     sorted_index = np.argsort(-score)
     fp = fp[sorted_index].tolist()
     tp = tp[sorted_index].tolist()
 
-    gt_total = iou_5['gt']
+    gt_total = iou_5["gt"]
 
     cumsum = 0
     for idx, val in enumerate(fp):
@@ -126,11 +123,11 @@ def calculate_ap(result_stat, iou):
 
     rec = tp[:]
     for idx, val in enumerate(tp):
-        rec[idx] = float(tp[idx]) / gt_total
+        rec[idx] = float(val) / gt_total
 
     prec = tp[:]
     for idx, val in enumerate(tp):
-        prec[idx] = float(tp[idx]) / (fp[idx] + tp[idx])
+        prec[idx] = float(val) / (fp[idx] + val)
 
     ap, mrec, mprec = voc_ap(rec[:], prec[:])
 
@@ -142,10 +139,37 @@ def false_positive_rate(result_stat, iou):
     Average false positive rate at ``iou``: false positives / predicted boxes,
     pooled over every frame seen by :func:`caluclate_tp_fp`.
     """
-    fp = np.array(result_stat[iou]['fp'])
+    fp = np.array(result_stat[iou]["fp"])
     if fp.shape[0] == 0:
-        return float('nan')
+        return float("nan")
     return float(fp.sum() / fp.shape[0])
+
+
+def f_beta_scores(result_stat, iou, beta=2.0):
+    """
+    F-beta at ``iou`` over every detection kept by post-processing, plus the
+    best F-beta over score cut-offs and the score threshold that achieves it.
+    Ties in score are never split, since a threshold can't separate them.
+    """
+    stat = result_stat[iou]
+    tp = np.array(stat["tp"], dtype=np.float64)
+    score = np.array(stat["score"], dtype=np.float64)
+    gt_total = stat["gt"]
+    if tp.shape[0] == 0 or gt_total == 0:
+        return float("nan"), float("nan"), float("nan")
+
+    order = np.argsort(-score, kind="stable")
+    score = score[order]
+    tp_cum = np.cumsum(tp[order])
+    prec = tp_cum / np.arange(1, tp_cum.shape[0] + 1)
+    rec = tp_cum / gt_total
+    b2 = beta * beta
+    denom = b2 * prec + rec
+    f = np.where(denom > 0, (1 + b2) * prec * rec / np.maximum(denom, 1e-12), 0.0)
+
+    cut = np.r_[score[:-1] != score[1:], True]
+    best = np.flatnonzero(cut)[np.argmax(f[cut])]
+    return float(f[-1]), float(f[best]), float(score[best])
 
 
 def eval_final_results(result_stat, save_path, infer_info=None):
@@ -159,28 +183,60 @@ def eval_final_results(result_stat, save_path, infer_info=None):
     fpr_50 = false_positive_rate(result_stat, 0.50)
     fpr_70 = false_positive_rate(result_stat, 0.70)
 
-    dump_dict.update({'ap30': ap_30,
-                      'ap_50': ap_50,
-                      'ap_70': ap_70,
-                      'mpre_50': mpre_50,
-                      'mrec_50': mrec_50,
-                      'mpre_70': mpre_70,
-                      'mrec_70': mrec_70,
-                      'fp_rate_30': fpr_30,
-                      'fp_rate_50': fpr_50,
-                      'fp_rate_70': fpr_70,
-                      })
-    if infer_info is None:
-        yaml_utils.save_yaml(dump_dict, os.path.join(save_path, 'eval.yaml'))
-    else:
-        yaml_utils.save_yaml(dump_dict, os.path.join(save_path, f'eval_{infer_info}.yaml'))
+    f2_30, f2max_30, f2thr_30 = f_beta_scores(result_stat, 0.30)
+    f2_50, f2max_50, f2thr_50 = f_beta_scores(result_stat, 0.50)
+    f2_70, f2max_70, f2thr_70 = f_beta_scores(result_stat, 0.70)
 
-    print('The Average Precision at IOU 0.3 is %.2f, '
-          'The Average Precision at IOU 0.5 is %.2f, '
-          'The Average Precision at IOU 0.7 is %.2f' % (ap_30, ap_50, ap_70))
-    print('The average False Positive rate at IOU 0.3 is %.2f, '
-          'The average False Positive rate at IOU 0.5 is %.2f, '
-          'The average False Positive rate at IOU 0.7 is %.2f'
-          % (fpr_30, fpr_50, fpr_70))
+    dump_dict.update(
+        {
+            "ap30": ap_30,
+            "ap_50": ap_50,
+            "ap_70": ap_70,
+            "mpre_50": mpre_50,
+            "mrec_50": mrec_50,
+            "mpre_70": mpre_70,
+            "mrec_70": mrec_70,
+            "fp_rate_30": fpr_30,
+            "fp_rate_50": fpr_50,
+            "fp_rate_70": fpr_70,
+            "f2_30": f2_30,
+            "f2_50": f2_50,
+            "f2_70": f2_70,
+            "f2_max_30": f2max_30,
+            "f2_max_50": f2max_50,
+            "f2_max_70": f2max_70,
+            "f2_max_thresh_30": f2thr_30,
+            "f2_max_thresh_50": f2thr_50,
+            "f2_max_thresh_70": f2thr_70,
+        }
+    )
+    if infer_info is None:
+        yaml_utils.save_yaml(dump_dict, os.path.join(save_path, "eval.yaml"))
+    else:
+        yaml_utils.save_yaml(
+            dump_dict, os.path.join(save_path, f"eval_{infer_info}.yaml")
+        )
+
+    print(
+        "The Average Precision at IOU 0.3 is %.2f, "
+        "The Average Precision at IOU 0.5 is %.2f, "
+        "The Average Precision at IOU 0.7 is %.2f" % (ap_30, ap_50, ap_70)
+    )
+    print(
+        "The average False Positive rate at IOU 0.3 is %.2f, "
+        "The average False Positive rate at IOU 0.5 is %.2f, "
+        "The average False Positive rate at IOU 0.7 is %.2f" % (fpr_30, fpr_50, fpr_70)
+    )
+    print(
+        "The F2 score at IOU 0.3 is %.4f, "
+        "The F2 score at IOU 0.5 is %.4f, "
+        "The F2 score at IOU 0.7 is %.4f" % (f2_30, f2_50, f2_70)
+    )
+    print(
+        "The best F2 over score thresholds at IOU 0.3 is %.4f (score >= %.3f), "
+        "at IOU 0.5 is %.4f (score >= %.3f), "
+        "at IOU 0.7 is %.4f (score >= %.3f)"
+        % (f2max_30, f2thr_30, f2max_50, f2thr_50, f2max_70, f2thr_70)
+    )
 
     return ap_30, ap_50, ap_70
