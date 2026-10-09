@@ -39,6 +39,8 @@ LEVEL_KEYS = (
     "disagreement_cosine",
     "sigma_cosine",
     "disagreement_decoded",
+    "n_keys",
+    "alpha",
 )
 # Combined level-0 maps; the evidence keys and aux channels are None / absent
 # under combined_mode='decoded'.
@@ -56,9 +58,11 @@ IOU_THRESHOLDS = (0.3, 0.5, 0.7)
 
 
 def get_levy_fusion(model):
-    """The model's LevyPyramidFusion, or None if it does not use one."""
+    """The model's Levy fusion (LevyPyramidFusion or LevyWindowFusion), or None."""
     fusion = getattr(model, "pyramid_backbone", None)
-    return fusion if isinstance(fusion, LevyPyramidFusion) else None
+    if isinstance(fusion, LevyPyramidFusion) or hasattr(fusion, "uncertainty_output"):
+        return fusion
+    return None
 
 
 def frame_identity(dataset, idx):

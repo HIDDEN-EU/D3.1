@@ -12,6 +12,15 @@ def add_noise_data_dict(data_dict, noise_setting):
     And set a clean pose.
     """
     if noise_setting["add_noise"]:
+        if "std_range" in noise_setting["args"]:
+            # One noise level per frame, shared by all its agents: sigma ~
+            # U(lo, hi) is used as both pos_std (m) and rot_std (deg).
+            lo, hi = noise_setting["args"]["std_range"]
+            sigma = float(np.random.uniform(lo, hi))
+            noise_setting = {
+                "add_noise": True,
+                "args": dict(noise_setting["args"], pos_std=sigma, rot_std=sigma),
+            }
         for cav_id, cav_content in data_dict.items():
             cav_content["params"]["lidar_pose_clean"] = cav_content["params"][
                 "lidar_pose"

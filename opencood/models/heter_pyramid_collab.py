@@ -11,6 +11,7 @@ import torchvision
 from torch import nn
 
 from opencood.models.fuse_modules.levy_pyramid_fuse import LevyPyramidFusion
+from opencood.models.fuse_modules.levy_window_fuse import LevyWindowFusion
 from opencood.models.fuse_modules.pyramid_fuse import PyramidFusion
 from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
@@ -132,6 +133,9 @@ class HeterPyramidCollab(nn.Module):
             # Drop-in replacement: same state_dict keys, so a PyramidFusion
             # checkpoint loads unchanged. Configured under fusion_backbone.levy.
             self.pyramid_backbone = LevyPyramidFusion(args["fusion_backbone"])
+        elif fusion_core_method == "levy_window":
+            # Windowed cross-agent Levy attention (fuse_modules/levy_window_fuse.py).
+            self.pyramid_backbone = LevyWindowFusion(args["fusion_backbone"])
         elif fusion_core_method == "pyramid":
             self.pyramid_backbone = PyramidFusion(args["fusion_backbone"])
         else:

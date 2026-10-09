@@ -7,11 +7,12 @@ import os
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 from opencood.data_utils.datasets import build_dataset
 from opencood.hypes_yaml import yaml_utils
 from opencood.tools import inference_utils, train_utils
+from opencood.tools.levy import levy_collect
 from opencood.utils import eval_utils
 from opencood.utils.common_utils import update_dict
 from opencood.visualization import simple_vis
@@ -138,6 +139,29 @@ def test_parser():
         "are not comparable to a full run.",
     )
     parser.add_argument("--note", default="", type=str, help="any other thing?")
+    parser.add_argument(
+        "--frame_subset",
+        type=int,
+        default=None,
+        help="run N frames evenly spaced over the split (representative quick run)",
+    )
+    parser.add_argument(
+        "--comm_mask", type=str, default=None,
+        choices=["evidence", "evidence_ms", "det_conf", "random"],
+        help="sparse communication: each collaborator sends the top --comm_rate of its "
+        "cells per pyramid level (fusion_backbone.comm_mask); the ego is never masked",
+    )
+    parser.add_argument("--comm_rate", type=float, default=0.1)
+    parser.add_argument(
+        "--split", type=str, default="test", choices=["test", "val"],
+        help="evaluate on test_dir (default) or validate_dir",
+    )
+    parser.add_argument(
+        "--save_levy",
+        action="store_true",
+        help="write per-frame / per-box / per-GT Levy signal tables to "
+        "model_dir/levy_<info>_{frames,boxes,gt}.csv (levy_pyramid or levy_window fusion)",
+    )
     opt = parser.parse_args()
     return opt
 
@@ -190,9 +214,18 @@ def main():
                 parser_func = func
         hypes = parser_func(hypes)
 
-    hypes["validate_dir"] = hypes["test_dir"]
-    if "OPV2V" in hypes["test_dir"] or "v2xsim" in hypes["test_dir"]:
-        assert "test" in hypes["validate_dir"]
+    if opt.comm_mask:
+        hypes["model"]["args"]["fusion_backbone"]["comm_mask"] = {
+            "enable": True, "select": opt.comm_mask, "rate": opt.comm_rate}
+        opt.note += f"_comm_{opt.comm_mask}_r{opt.comm_rate:g}"
+    if opt.split == "val":
+        # keep validate_dir: e.g. to fit a calibration that is then applied on test
+        opt.note += "_val"
+        print(f"[eval] VALIDATION split: {hypes['validate_dir']}")
+    else:
+        hypes["validate_dir"] = hypes["test_dir"]
+        if "OPV2V" in hypes["test_dir"] or "v2xsim" in hypes["test_dir"]:
+            assert "test" in hypes["validate_dir"]
 
     # This is used in visualization
     # left hand: OPV2V, V2XSet
@@ -323,8 +356,16 @@ def main():
     def _seed_worker(worker_id):
         np.random.seed(303 + worker_id)
 
+    loader_dataset = opencood_dataset
+    if opt.frame_subset is not None:
+        idx = np.linspace(0, len(opencood_dataset) - 1, opt.frame_subset)
+        idx = sorted(set(int(round(x)) for x in idx))
+        print(f"[eval] {len(idx)} evenly spaced frames")
+        loader_dataset = Subset(opencood_dataset, idx)
+        opt.note += f"_sub{opt.frame_subset}"
+
     data_loader = DataLoader(
-        opencood_dataset,
+        loader_dataset,
         batch_size=1,
         num_workers=4,
         collate_fn=opencood_dataset.collate_batch_test,
@@ -342,6 +383,16 @@ def main():
     }
 
     infer_info = opt.fusion_method + opt.note
+
+    levy_fusion = levy_recorder = None
+    if opt.save_levy:
+        levy_fusion = levy_collect.get_levy_fusion(model)
+        if opt.fusion_method != "intermediate" or levy_fusion is None:
+            raise SystemExit("--save_levy needs intermediate fusion with a Levy fusion module")
+        levy_recorder = levy_collect.LevyRecorder(
+            hypes["postprocess"]["anchor_args"]["cav_lidar_range"],
+            hypes["postprocess"]["gt_range"],
+        )
 
     for i, batch_data in enumerate(data_loader):
         if opt.max_frames is not None and i >= opt.max_frames:
@@ -365,9 +416,15 @@ def main():
                     batch_data, model, opencood_dataset
                 )
             elif opt.fusion_method == "intermediate":
+                if levy_fusion is not None:
+                    levy_fusion.uncertainty_output = None
                 infer_result = inference_utils.inference_intermediate_fusion(
                     batch_data, model, opencood_dataset
                 )
+                if levy_recorder is not None:
+                    levy_collect.record_frame(
+                        levy_recorder, levy_fusion, frame=i, dataset=loader_dataset,
+                        use_cav=0, batch_data=batch_data, infer_result=infer_result)
             elif opt.fusion_method == "no":
                 infer_result = inference_utils.inference_no_fusion(
                     batch_data, model, opencood_dataset
@@ -454,6 +511,9 @@ def main():
     _, ap50, ap70 = eval_utils.eval_final_results(
         result_stat, opt.model_dir, infer_info
     )
+    if levy_recorder is not None:
+        for path in levy_recorder.write(os.path.join(opt.model_dir, f"levy_{infer_info}")):
+            print(f"Levy statistics saved to {path}")
 
 
 if __name__ == "__main__":
