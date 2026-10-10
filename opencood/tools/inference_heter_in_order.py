@@ -239,6 +239,13 @@ def test_parser():
         help="gamma for --comm_ms_space lambda",
     )
     parser.add_argument(
+        "--all_modality",
+        type=str,
+        default=None,
+        help="map every agent to this modality (e.g. m1: all agents are LiDAR m1); the "
+        "assignment still sets the agent order, so ego and collaborators are unchanged",
+    )
+    parser.add_argument(
         "--frame_subset",
         type=int,
         default=None,
@@ -337,6 +344,10 @@ def main():
         hypes = update_dict(
             hypes, {"mapping_dict": {"m1": "m1", "m2": "m4", "m3": "m3", "m4": "m4"}}
         )
+        if opt.all_modality:
+            hypes = update_dict(
+                hypes, {"mapping_dict": {m: opt.all_modality for m in ("m1", "m2", "m3", "m4")}}
+            )
 
         # reload anchor
         yaml_utils_lib = importlib.import_module("opencood.hypes_yaml.yaml_utils")
@@ -657,16 +668,6 @@ def main():
                         t[0] += st["sent_cells"]
                         t[1] += st["full_cells"]
 
-                if opt.measure_perf:
-                    if use_cuda_events:
-                        ender.record()
-                        torch.cuda.synchronize()
-                        elapsed = starter.elapsed_time(ender) / 1000.0  # ms -> s
-                    else:
-                        elapsed = time.time() - _t0
-                    if i >= WARMUP_ITERS:
-                        perf_timings.append(elapsed)
-
                 # of shape [N, 8, 3]
                 # N: number of objects detected
                 # [8, 3]: coordinates of the 8 bounding box corners, in 3-dimensions
@@ -700,6 +701,18 @@ def main():
                                 [infer_result["pred_score"],
                                  new_score.to(infer_result["pred_score"].dtype)]
                             )
+
+                # the timed window ends here, so Levy re-scoring and proposals count too
+                if opt.measure_perf:
+                    if use_cuda_events:
+                        ender.record()
+                        torch.cuda.synchronize()
+                        elapsed = starter.elapsed_time(ender) / 1000.0  # ms -> s
+                    else:
+                        elapsed = time.time() - _t0
+                    if i >= WARMUP_ITERS:
+                        perf_timings.append(elapsed)
+
                 pred_box_tensor = infer_result["pred_box_tensor"]
                 gt_box_tensor = infer_result["gt_box_tensor"]
                 pred_score = infer_result["pred_score"]
