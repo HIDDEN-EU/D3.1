@@ -134,6 +134,11 @@ To evaluate on the merged GT with an existing config:
 bash dist_val.sh 8 configs/opusv2_cohff/opusv2-t_r101_800x576_1f_cohff.py path/to/checkpoints "" --override data.val.use_merged_gt=True
 ```
 
+## Model weights
+
+The trained model weights are uploaded to [Google Drive](https://drive.google.com/drive/folders/1MXuDcMOByueRbwe9mEDvY9NKW1T0oo8p?usp=sharing).
+Pass a downloaded checkpoint to `val.py` / `dist_val.sh` as described in the evaluation sections above.
+
 ## Citation
 
 If this is useful for your research, please cite the original OPUS paper:
