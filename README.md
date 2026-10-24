@@ -1,4 +1,7 @@
 # CUT - Cooperative Perception
+This repository is based on [HEAL](!https://github.com/yifanlu0227/HEAL). 
+We use this as the base for the easy access to OpenCOOD and several implementation baselines to built from.
+
 ## Repo Feature
 
 - Modality Support
