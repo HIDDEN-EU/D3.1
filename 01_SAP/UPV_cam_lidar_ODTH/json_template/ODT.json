@@ -1,0 +1,70 @@
+{
+  "metadata": {
+    "schema_version": "string",
+    "message_type": "string  (e.g. 'Ego_3D_ODT')",
+    "message_id": "string  (UUID; unique per message)",
+    "sender_id": "string  (globally unique agent identifier)",
+    "sequence_number": "int  (monotonically increasing per sender)",
+    "send_timestamp": "float  (Unix seconds; when this message was created)",
+    "time_reference": "string  (e.g. 'UTC')"
+    },
+
+  "sender_state": {
+    "_comment": "Sender 6-DoF pose",
+    "agent_type": "string  (e.g. 'ego', 'pov', 'rsu')",
+    "position": {
+        "_comment": "Translation t = [x, y, z]. Position of the body frame origin, expressed in the parent frame.",
+        "x": "float  (meters)",
+        "y": "float  (meters)",
+        "z": "float  (meters)"
+    },
+    "orientation": {
+        "_comment": "Tait-Bryan angles, intrinsic ZYX. Rotation matrix R from body to parent: R = Rz(yaw) @ Ry(pitch) @ Rx(roll).",
+        "roll": "float  (radians; rotation about x)",
+        "pitch": "float  (radians; rotation about y)",
+        "yaw": "float  (radians; rotation about z)"
+    }
+  },
+
+  "axes_convention": {
+      "_comment": "Right-handed coordinate frame. Heading is measured around +z, counterclockwise from +x.",
+      "x": "forward (along heading at heading = 0)",
+      "y": "left",
+      "z": "up",
+      "_sketch": [
+        "          +x (forward)                    ",
+        "           ^                              ",
+        "           |                              ",
+        "           |                              ",
+        "  +y <-----+    (+z points up, out of page)",
+        " (left)                                   "
+      ]
+    },
+
+  "detections": [
+    {
+      "track_id": "int  (consistent across frames; omit or set null if untracked)",
+      "category": "string  (e.g. 'Car', 'Pedestrian', 'Cyclist')",
+      "score": "float  (confidence in [0, 1])",
+      "timestamp": "float  (Unix seconds; per-detection time)",
+      "x": "float  (meters)",
+      "y": "float  (meters)",
+      "z": "float  (meters)",
+      "length": "float  (meters; along heading direction)",
+      "width": "float  (meters; perpendicular to heading)",
+      "height": "float  (meters; vertical)",
+      "heading": "float  (radians; yaw around z-axis, counterclockwise from +x)",
+      "yaw_rate": "float  (radians/second; angular velocity around z)",
+      "vx": "float  (meters/second; along x)",
+      "vy": "float  (meters/second; along y)",
+      "optional": {
+        "_comment": "All fields below are optional; individual fields may be omitted, or the entire 'optional' object may be omitted",
+        "v": "float  (meters/second; signed speed magnitude; can be derived from vx, vy)",
+        "a": "float  (meters/second^2; signed acceleration magnitude)",
+        "ax": "float  (meters/second^2; along x)",
+        "ay": "float  (meters/second^2; along y)",
+        "w": "float  (radians/second^2; angular acceleration around z)"
+      }
+    }
+  ]
+}
