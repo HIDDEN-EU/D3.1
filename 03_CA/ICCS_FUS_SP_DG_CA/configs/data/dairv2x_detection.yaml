@@ -1,0 +1,33 @@
+_target_: src.datamodules.detection_datamodule.DAIRV2XDataModule
+
+#vehicle-side
+data_path_veh_cam: /mnt/e/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/
+data_path_veh_lid: /mnt/e/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/
+path_to_data_info: /mnt/e/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/data_info.json
+path_to_gt_labels: /mnt/e/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/
+path_to_data_splits: /mnt/e/dev/hidden/projects/detection_dairv2x/src/utils/cooperative-split-data.json
+path_to_veh_calib: /mnt/e/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/calib/
+
+#infra-side 
+ 
+#training
+batch_size: ${batch_size}
+num_workers: 1
+pin_memory: False
+#validation
+
+#conf
+test_k: False
+test_k_elem: 100
+
+class_names:
+  - Car
+  - Truck
+  - Van
+  - Bus
+  - Pedestrian
+  - Cyclist
+  - Tricyclist
+  - Motorcyclist
+  - Barrowlist
+  - Trafficcone

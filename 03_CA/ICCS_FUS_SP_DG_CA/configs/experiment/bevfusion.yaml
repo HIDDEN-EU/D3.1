@@ -1,0 +1,12 @@
+# @package _global_
+
+experiment_name: bevfusion
+batch_size: 1
+seed: 42
+modelcheckpoint_monitor: total_val_loss  # Must match your logged metric name
+
+trainer:
+  max_epochs: 150
+
+model:
+  score_threshold: 0.1

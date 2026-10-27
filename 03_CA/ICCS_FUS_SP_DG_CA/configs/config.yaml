@@ -1,0 +1,26 @@
+# defaults:
+#   - model: detection_model
+#   - data: dairv2x_detection
+#   - trainer: default
+#   - logger: tensorboard
+
+
+# experiment_name: simple_transformer_hivt_preprocessing
+# batch_size: 1
+# modelcheckpoint_monitor: 
+# seed: 42
+
+defaults:
+  - model: detection_model
+  - data: dairv2x_detection
+  - trainer: default
+  - logger: tensorboard
+  - _self_
+  - experiment: bevfusion
+  - mode: train
+
+experiment_name: default
+batch_size: 1
+modelcheckpoint_monitor: total_val_loss
+seed: 42
+ckpt_path: null
