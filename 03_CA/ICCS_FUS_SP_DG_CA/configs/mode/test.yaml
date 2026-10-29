@@ -1,0 +1,6 @@
+# @package _global_
+
+task: test
+batch_size: 1
+ckpt_path: /mnt/e/dev/hidden/projects/detection_dairv2x/checkpoints/epoch=epoch=29-val=val=0.0000-name=full_train_10.ckpt  # Required: supply a checkpoint when testing
+

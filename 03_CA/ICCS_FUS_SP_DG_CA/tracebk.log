@@ -1,0 +1,118 @@
+Logging level: 30
+Global seed set to 42
+Error executing job with overrides: ['experiment_name=try1']
+model:
+  _target_: src.models.bevfusion_model.BEVFusionLightningModule
+  _recursive_: false
+  in_channels: 64
+  out_channels: 64
+  image_size:
+  - 1080
+  - 1920
+  feature_size:
+  - 135
+  - 240
+  xbound:
+  - -50.0
+  - 50.0
+  - 0.5
+  ybound:
+  - -50.0
+  - 50.0
+  - 0.5
+  zbound:
+  - -10.0
+  - 10.0
+  - 20.0
+  dbound:
+  - 1.0
+  - 60.0
+  - 0.5
+  downsample: 1
+  calib_path: /mnt/d/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/calib/
+data:
+  _target_: src.datamodules.detection_datamodule.DAIRV2XDataModule
+  data_path_veh_cam: /mnt/d/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/
+  data_path_veh_lid: /mnt/d/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/
+  path_to_data_info: /mnt/d/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/data_info.json
+  path_to_gt_labels: /mnt/d/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/
+  path_to_data_splits: /mnt/e/dev/hidden/projects/detection_dairv2x/src/utils/cooperative-split-data.json
+  path_to_veh_calib: /mnt/d/dev/hidden/data/dairv2x/cooperative-vehicle-infrastructure/vehicle-side/calib/
+  batch_size: ${batch_size}
+  num_workers: 1
+  pin_memory: false
+  test_k: false
+  test_k_elem: 100
+trainer:
+  _target_: pytorch_lightning.Trainer
+  max_epochs: 500
+  gpus: 1
+  log_every_n_steps: 1
+  gradient_clip_val: 1.0
+logger:
+  _target_: pytorch_lightning.loggers.TensorBoardLogger
+  save_dir: lightning_logs
+  name: ${experiment_name}
+  version: ${now:%Y-%m-%d_%H-%M-%S}_${experiment_name}
+  default_hp_metric: false
+experiment_name: try1
+batch_size: 5
+modelcheckpoint_monitor: null
+seed: 42
+
+Traceback (most recent call last):
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/_internal/utils.py", line 575, in _locate
+    import_module(mod)
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/importlib/__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1014, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 991, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 975, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 671, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 843, in exec_module
+  File "<frozen importlib._bootstrap>", line 219, in _call_with_frames_removed
+  File "/mnt/e/dev/hidden/projects/detection_dairv2x/src/models/bevfusion_model.py", line 4, in <module>
+    from src.utils.architecture.bevfusion import BEVFusionV2X
+  File "/mnt/e/dev/hidden/projects/detection_dairv2x/src/utils/architecture/bevfusion.py", line 11, in <module>
+    from src.utils.architecture.lss.lss import LSSTransform
+  File "/mnt/e/dev/hidden/projects/detection_dairv2x/src/utils/architecture/lss/lss.py", line 2, in <module>
+    from mmcv.runner import force_fp32
+ModuleNotFoundError: No module named 'mmcv.runner'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/_internal/utils.py", line 211, in run_and_report
+    return func()
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/_internal/utils.py", line 368, in <lambda>
+    lambda: hydra.run(
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/_internal/hydra.py", line 110, in run
+    _ = ret.return_value
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/core/utils.py", line 233, in return_value
+    raise self._return_value
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/core/utils.py", line 160, in run_job
+    ret.return_value = task_function(task_cfg)
+  File "train.py", line 54, in main
+    model = instantiate(cfg.model)   
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/_internal/instantiate/_instantiate2.py", line 180, in instantiate
+    return instantiate_node(config, *args, recursive=_recursive_, convert=_convert_)
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/_internal/instantiate/_instantiate2.py", line 240, in instantiate_node
+    target = _resolve_target(node.get(_Keys.TARGET))
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/_internal/instantiate/_instantiate2.py", line 104, in _resolve_target
+    return _locate(target)
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/_internal/utils.py", line 577, in _locate
+    raise ImportError(
+ImportError: Encountered error: `No module named 'mmcv.runner'` when loading module 'src.models.bevfusion_model.BEVFusionLightningModule'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "train.py", line 124, in <module>
+    main()
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/main.py", line 49, in decorated_main
+    _run_hydra(
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/_internal/utils.py", line 367, in _run_hydra
+    run_and_report(
+  File "/home/manos/miniforge3/envs/dairv2x/lib/python3.8/site-packages/hydra/_internal/utils.py", line 251, in run_and_report
+    assert mdl is not None
+AssertionError
