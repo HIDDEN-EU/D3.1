@@ -154,13 +154,15 @@ class IMMBoxTracker:
     ])
 
     def __init__(self, det7: np.ndarray, label: int):
-        """det7 = [x, y, z_bottom, w, l, h, yaw]"""
+        """det7 = [x, y, z_bottom, w, l, h, yaw] or [..., yaw, score]"""
         self.id    = IMMBoxTracker._next_id
         IMMBoxTracker._next_id += 1
         self.label = label
         self.hits  = 1
         self.age   = 0
         self.time_since_update = 0
+        # detection score of the last matched detection (1.0 if not supplied)
+        self.score = float(det7[7]) if len(det7) > 7 else 1.0
 
         self.z = float(det7[2])
         self.w = float(det7[3])
@@ -252,6 +254,7 @@ class IMMBoxTracker:
 
         self.time_since_update = 0
         self.hits += 1
+        self.score = float(det7[7]) if len(det7) > 7 else 1.0
         self.z, self.w, self.l, self.h = float(det7[2]), float(det7[3]), float(det7[4]), float(det7[5])
 
     def _combine(self):

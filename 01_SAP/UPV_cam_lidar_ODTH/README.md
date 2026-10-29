@@ -15,8 +15,8 @@ Trajectory prediction is selectable per run:
 
 | Choice | Flag(s) | What it is |
 |---|---|---|
-| **KF** | `--tracker kf` (default) | Constant-velocity Kalman filter. Simple, fast, good on straight roads. |
-| **IMM** | `--tracker imm` | 2-model Interacting Multiple Model (constant-velocity + coordinated-turn). More accurate through roundabouts/turns than plain KF. |
+| **KF** | `--tracker kf` | Constant-velocity Kalman filter. Simple, fast, good on straight roads. |
+| **IMM** | `--tracker imm` (default) | 2-model Interacting Multiple Model (constant-velocity + coordinated-turn). More accurate through roundabouts/turns than plain KF. |
 | **QCNet + IMM** | `--tracker imm --future-predictor qcnet --qcnet-mode-select nearest-to-imm` | [QCNet](https://github.com/ZikangZhou/QCNet) (CVPR'23), a learned, map-aware, multi-modal trajectory predictor, with its output mode re-ranked by consistency with the IMM tracker's own rollout. In our internal evaluation (independently matched against nuScenes ground truth) this combination beat both plain KF and IMM. |
 
 Detection and KF/IMM tracking run in one conda environment (`bevfusion`); QCNet
@@ -173,17 +173,22 @@ All commands run from the repo root. `MASTER_HOST` is required by
 Scene numbers are assigned in the order scenes appear in the val split (or in
 your `--num-samples`-limited subset, timestamp-sorted).
 
-### KF (default) or IMM
+### IMM (default) or KF
+
+The defaults are the deployed configuration evaluated in deliverable D3.1
+(Sec. 2.3): IMM tracker, detection score threshold 0.3, tracks confirmed after
+one hit (`--min-hits 1`), occlusion coasting for up to `--max-age 3` frames
+(1.5 s).
 
 ```bash
-# Run inference fresh and render scenes 0-2 (KF tracker, the default):
+# Run inference fresh and render scenes 0-2 (IMM tracker, the default):
 MASTER_HOST=localhost:29500 conda run -n bevfusion python track_and_visualize.py \
     --scenes 0-2 --save-results bf_results.pkl
 
-# Same, but with the IMM tracker:
+# Same, but with the constant-velocity KF tracker:
 MASTER_HOST=localhost:29500 conda run -n bevfusion python track_and_visualize.py \
-    --scenes 0-2 --results bf_results.pkl --tracker imm \
-    --video-dir tracked_scenes_imm --json-dir tracked_scenes_imm_json
+    --scenes 0-2 --results bf_results.pkl --tracker kf \
+    --video-dir tracked_scenes_kf --json-dir tracked_scenes_kf_json
 ```
 
 Output: `tracked_scenes/scene_000.mp4` (or wherever `--video-dir` points) and
@@ -215,9 +220,9 @@ MASTER_HOST=localhost:29500 conda run -n bevfusion python track_and_visualize.py
     --video-dir tracked_scenes_qcnet --json-dir tracked_scenes_qcnet_json
 ```
 
-`--qcnet-mode-select top1` (QCNet's own highest-confidence mode, no IMM
-involved) is also available but was not the best performer in our evaluation —
-see below.
+`nearest-to-imm` is the default for `--qcnet-mode-select`. `--qcnet-mode-select
+top1` (QCNet's own highest-confidence mode, no IMM involved) is also available
+but was not the best performer in our evaluation — see below.
 
 <a name="choosing-a-predictor"></a>
 ### Choosing a predictor
@@ -247,12 +252,28 @@ dashed orange boxes = coasted prediction while occluded; dotted lines =
 predicted future trajectory.
 
 **JSON** (`scene_XXX/<sample_token>.json`): one file per frame, schema in
-[`json_template/ODT.json`](json_template/ODT.json). Key fields per detection:
+[`json_template/ODT.json`](json_template/ODT.json); a real output frame (nuScenes
+val scene 0, including coasted objects) is in
+[`json_template/ODT_example_output.json`](json_template/ODT_example_output.json).
+Key fields per detection:
 
 - `track_id`, `category`, `x`/`y`/`z`/`length`/`width`/`height`/`heading` (ego
-  vehicle frame, meters/radians), `vx`/`vy`/`yaw_rate`
-- `optional.track_state`: `"detected"` (matched this frame) or `"predicted"`
-  (coasting through occlusion)
+  vehicle frame, meters/radians), `vx`/`vy` (m/s, ego frame), `yaw_rate` (rad/s)
+- `score`: one confidence value per object. For a detected object it is the
+  BEVFusion detection score of the detection matched this frame; for a
+  coasted object it is the last detection score decayed by 0.9 per coasted
+  frame. It is a class/existence confidence, not a position or velocity
+  uncertainty (see the covariances below).
+- `optional.track_state`: `"detected"` (matched to a detection this frame, i.e.
+  observed) or `"predicted"` (coasting through a detection gap, i.e.
+  extrapolated by the KF/IMM). The `track_id` is kept through the gap.
+- `optional.time_since_detection`: seconds since the track was last matched
+  to a detection (0 when `"detected"`, 0.5 / 1.0 / 1.5 while coasting).
+- `optional.position_covariance` (m²) / `optional.velocity_covariance`
+  ((m/s)²): 2×2 covariance of (x, y) and (vx, vy) from the KF/IMM, rotated
+  into the ego frame. Grows while coasting. Filter noise parameters are not
+  yet fitted to data, so treat these as relative rather than calibrated
+  uncertainties.
 - `predicted_trajectory`: list of `{t, x, y, z}` future waypoints (0.5s apart,
   matching nuScenes' 2Hz keyframe rate)
 - `prediction_source`: which tracker/predictor produced the trajectory, e.g.

@@ -76,7 +76,9 @@ ODT_CATEGORY = {
 }
 
 SENDER_ID = "bevfusion_track_v1"
-STEP_DT   = 0.5   # seconds per future-trajectory step (nuScenes keyframes are 2 Hz)
+STEP_DT   = 0.5   # seconds per future-trajectory step (nuScenes keyframes are 2 Hz);
+                  # also the tracker's frame period (KF/IMM run with dt = 1 frame)
+COAST_SCORE_DECAY = 0.9   # JSON score of a coasted track = last detection score * 0.9**frames_coasted (D3.1 Sec. 2.3)
 
 # class colour palette (RGB)
 PALETTE = {
@@ -136,13 +138,15 @@ class KalmanBoxTracker:
     _next_id = 1
 
     def __init__(self, det7: np.ndarray, label: int):
-        """det7 = [x, y, z_bottom, w, l, h, yaw]"""
+        """det7 = [x, y, z_bottom, w, l, h, yaw] or [..., yaw, score]"""
         self.id    = KalmanBoxTracker._next_id
         KalmanBoxTracker._next_id += 1
         self.label = label
         self.hits  = 1
         self.age   = 0
         self.time_since_update = 0
+        # detection score of the last matched detection (1.0 if not supplied)
+        self.score = float(det7[7]) if len(det7) > 7 else 1.0
 
         # constants updated on each detection match
         self.z = float(det7[2])
@@ -205,6 +209,7 @@ class KalmanBoxTracker:
 
         self.time_since_update = 0
         self.hits += 1
+        self.score = float(det7[7]) if len(det7) > 7 else 1.0
         self.z, self.w, self.l, self.h = float(det7[2]), float(det7[3]), float(det7[4]), float(det7[5])
 
     def get_state(self) -> np.ndarray:
@@ -252,7 +257,8 @@ class MultiObjectTracker:
     # ------------------------------------------------------------------
     def update(self, det_boxes7: np.ndarray, det_labels: np.ndarray):
         """
-        det_boxes7 : [N, 7]  (x, y, z_bottom, w, l, h, yaw)
+        det_boxes7 : [N, 7]  (x, y, z_bottom, w, l, h, yaw), or [N, 8] with the
+                     detection score appended (stored on the track as t.score)
         det_labels : [N]     int class indices
 
         Returns (det_boxes, det_labels, pred_boxes, pred_labels) — all np arrays.
@@ -490,14 +496,22 @@ def build_frame_json(info: dict, tracker, max_age: int, min_hits: int,
         cat_str = OBJECT_CLASSES[t.label]
         odt_cat = ODT_CATEGORY.get(cat_str, "Unknown")
 
-        vg = np.array([t.vx_global, t.vy_global])
+        # tracker state is per frame (dt = 1 frame) -> convert to m/s, rad/s
+        vg = np.array([t.vx_global, t.vy_global]) / STEP_DT
         ve = R_g2e @ vg
         vx_ego, vy_ego = float(ve[0]), float(ve[1])
 
+        # position / velocity uncertainty from the filter covariance, rotated into the
+        # ego frame (KF and IMM both keep x, y, vx, vy at state indices 0..3)
+        pos_cov = R_g2e @ t.P[0:2, 0:2] @ R_g2e.T
+        vel_cov = R_g2e @ t.P[2:4, 2:4] @ R_g2e.T / STEP_DT ** 2
+
+        tsu = t.time_since_update
         det = {
             "track_id":  t.id,
             "category":  odt_cat,
-            "score":     1.0,   # already filtered by --score-thr upstream
+            # detection score of the last matched detection, decayed while coasting
+            "score":     round(t.score * COAST_SCORE_DECAY ** tsu, 4),
             "timestamp": timestamp,
             "x":         float(ego_box[0]),
             "y":         float(ego_box[1]),
@@ -506,10 +520,18 @@ def build_frame_json(info: dict, tracker, max_age: int, min_hits: int,
             "width":     float(t.w),
             "height":    float(t.h),
             "heading":   float(ego_box[6]),
-            "yaw_rate":  float(t.yaw_rate),
+            "yaw_rate":  float(t.yaw_rate) / STEP_DT,
             "vx":        vx_ego,
             "vy":        vy_ego,
-            "optional":  {"v": float(np.hypot(vx_ego, vy_ego)), "track_state": state},
+            "optional":  {
+                "v": float(np.hypot(vx_ego, vy_ego)),
+                # "detected" = matched to a detection this frame (observed);
+                # "predicted" = coasting through a detection gap (extrapolated)
+                "track_state": state,
+                "time_since_detection": tsu * STEP_DT,   # seconds; 0 when detected
+                "position_covariance": [[round(float(v), 4) for v in row] for row in pos_cov],
+                "velocity_covariance": [[round(float(v), 4) for v in row] for row in vel_cov],
+            },
         }
 
         if cat_str in MOBILE_CLASSES:
@@ -890,6 +912,7 @@ def make_tracked_video(scene_infos: list, scene_results: list,
         labels   = result["labels_3d"].numpy()
         mask     = scores >= score_thr
         boxes_np = boxes_np[mask]
+        scores   = scores[mask]
         labels   = labels[mask]
 
         # convert to 7-D (x,y,z_bottom, w,l,h, yaw) in LiDAR frame
@@ -905,8 +928,11 @@ def make_tracked_video(scene_infos: list, scene_results: list,
         # sees a fixed coordinate system, then convert predicted boxes back.
         T_l2g = build_lidar2global(info)
         det_boxes7_global = boxes_lidar_to_global(det_boxes7_lidar, T_l2g)
+        # append the detection score as an 8th column so tracks carry it (JSON "score")
+        det_boxes8_global = np.concatenate(
+            [det_boxes7_global, scores[:, None].astype(np.float64)], axis=1)
 
-        det_b_g, det_l, pred_b_g, pred_l = tracker.update(det_boxes7_global, labels)
+        det_b_g, det_l, pred_b_g, pred_l = tracker.update(det_boxes8_global, labels)
 
         if qcnet_dump is not None:
             ex, ey, eyaw = ego_pose_xy_yaw(info)
@@ -1052,8 +1078,9 @@ def parse_args():
     p.add_argument("--fps",         type=int,   default=5)
     p.add_argument("--max-age",     type=int,   default=3,
                    help="Frames a track can be invisible before deletion (default 3).")
-    p.add_argument("--min-hits",    type=int,   default=2,
-                   help="Detections needed before a new track is confirmed (default 2).")
+    p.add_argument("--min-hits",    type=int,   default=1,
+                   help="Detections needed before a new track is confirmed (default 1, "
+                        "the deployed setting evaluated in D3.1).")
     p.add_argument("--video-dir",   default=OUT_DIR)
     p.add_argument("--num-samples", type=int,   default=None,
                    help="Limit inference to first N samples (default: all 6019).")
@@ -1071,10 +1098,10 @@ def parse_args():
     p.add_argument("--any-proj", action="store_true",
                    help="Fix 4: keep a box on a camera image if ANY corner is in front "
                         "of the lens (default requires ALL 8 corners in front).")
-    p.add_argument("--tracker", choices=["kf", "imm"], default="kf",
-                   help="kf = original constant-velocity Kalman tracker (default). "
-                        "imm = 2-model IMM (CV + coordinated-turn), better through "
-                        "roundabouts/turns — see imm_tracker.py.")
+    p.add_argument("--tracker", choices=["kf", "imm"], default="imm",
+                   help="imm = 2-model IMM (CV + coordinated-turn), better through "
+                        "roundabouts/turns — see imm_tracker.py (default, the deployed "
+                        "tracker in D3.1). kf = original constant-velocity Kalman tracker.")
     p.add_argument("--future-predictor", choices=["physics", "qcnet"], default="physics",
                    help="physics = KF/IMM rollout (default). qcnet = precomputed "
                         "QCNet predictions loaded from --qcnet-futures (see "
@@ -1084,10 +1111,12 @@ def parse_args():
     p.add_argument("--qcnet-futures", default=None, metavar="PKL",
                    help="Path to the futures pkl produced by qcnet_infer.py. "
                         "Required when --future-predictor qcnet.")
-    p.add_argument("--qcnet-mode-select", choices=["top1", "nearest-to-imm"], default="top1",
+    p.add_argument("--qcnet-mode-select", choices=["top1", "nearest-to-imm"],
+                   default="nearest-to-imm",
                    help="Which of QCNet's 6 modes to draw (only with --future-predictor "
-                        "qcnet). top1 (default) = QCNet's own highest-confidence mode. "
-                        "nearest-to-imm = pick the mode closest to the IMM tracker's own "
+                        "qcnet). top1 = QCNet's own highest-confidence mode. "
+                        "nearest-to-imm (default; best deployable predictor in D3.1, "
+                        "Table 11) = pick the mode closest to the IMM tracker's own "
                         "physics rollout each frame -- no ground truth used, validated in "
                         "changes.txt (2026-07-15) to beat both KF and IMM outright, "
                         "including against independently matched nuScenes ground truth. "
@@ -1210,10 +1239,8 @@ def main():
     if args.future_predictor == "qcnet" and not args.qcnet_futures:
         raise ValueError("--future-predictor qcnet requires --qcnet-futures PATH "
                           "(see qcnet_infer.py to produce it).")
-    if args.qcnet_mode_select == "nearest-to-imm":
-        if args.future_predictor != "qcnet":
-            raise ValueError("--qcnet-mode-select nearest-to-imm only applies with "
-                              "--future-predictor qcnet.")
+    # --qcnet-mode-select is ignored unless --future-predictor qcnet
+    if args.future_predictor == "qcnet" and args.qcnet_mode_select == "nearest-to-imm":
         if args.tracker != "imm":
             raise ValueError("--qcnet-mode-select nearest-to-imm requires --tracker imm "
                               "(the heuristic is validated specifically against the IMM "
