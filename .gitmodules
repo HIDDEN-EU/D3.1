@@ -1,0 +1,3 @@
+[submodule "01_SAP/CTAG_lidar_ODTH"]
+	path = 01_SAP/CTAG_lidar_ODTH
+	url = https://github.com/HIDDEN-EU/CTAG_lidar_ODTH_ros2.git
