@@ -19,8 +19,8 @@ Inside each task folder, the subfolders, each corresponding to one component, ar
 ```
 D3.1/
 ├── 01_SAP/                     # Single-agent perception (Task 3.1)
+│   ├── CTAG_late_fusion_ODT
 │   ├── CTAG_lidar_ODTH
-│   ├── DENSO_uwb_ODT
 │   ├── Late_Fusion_ODT
 │   ├── UFR_cam_ASEG
 │   └── UPV_cam_lidar_ODTH
@@ -28,8 +28,6 @@ D3.1/
 │   ├── CTAG_ATTEN
 │   ├── LIBRA_camera_EM
 │   ├── LIBRA_CIBOS_OD_GAZE
-│   ├── Merge_DS
-│   └── Merge_FR
 ├── 03_CA/                      # Collective awareness (Task 3.3)
 │   ├── CUT_FUS_SP_DG
 │   ├── ICCS_FUS_SP_DG_CA

@@ -1,6 +1,6 @@
 <div align="center">
 
-# STCOcc: Sparse Spatial-Temporal Cascade Renovation for 3D Occupancy and Scene Flow Prediction
+# UFR_cam_ASEG
 
 </div>
 
@@ -17,15 +17,7 @@ The original repository is the official PyTorch implementation of:
 
 ![demo](https://github.com/lzzzzzm/STCOcc/blob/main/asserts/demo_video_.gif)
 
-## 🚀 News
-
-* **[2025-07]** Check out our new work [**II-World**](https://github.com/lzzzzzm/II-World)
-
-* **[2025-03]** STCOcc is accepted to CVPR 2025.
-
 ## 🤗 Model Zoo
-
-We utilize 8 RTX4090 GPUs to train our model.
 
 |         Setting         | Epochs | Training Cost | RayIoU | MAVE |                                                Weights                                                | 
 |:-----------------------:|:------:|:-------------:|:------:|:----:|-------------------------------------------------------------------------------------------------------|
@@ -188,7 +180,7 @@ python tools/vis_results.py --vis-single-data path/to/results
 More visualization options can be found in the `tools/vis_results.py` script.
 
 ## 📄 Citation
-if you find our work useful, please consider citing:
+If you are using our label-free version of STCOcc, please consider citing:
 
 ```bibtex
 @inproceedings{liao2025stcocc,
