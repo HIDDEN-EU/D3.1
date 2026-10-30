@@ -1,0 +1,12 @@
+*.pyc
+*.so
+*.o
+
+mmdet3d.egg-info/*
+
+wandb/*
+work_dirs/*
+build/*
+
+data/*
+pretrained/*
