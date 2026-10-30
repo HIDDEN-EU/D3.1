@@ -1,0 +1,61 @@
+{
+  "metadata": {
+    "schema_version": "string",
+    "message_type": "string  (e.g. 'Ego_3D_ODT')",
+    "message_id": "string  (UUID; unique per message)",
+    "sender_id": "string  (globally unique agent identifier)",
+    "sequence_number": "int  (monotonically increasing per sender)",
+    "send_timestamp": "float  (Unix seconds; wall-clock time when this message was sent)",
+    "time_reference": "string  (e.g. 'UTC')"
+  },
+
+  "sender_state": {
+    "_comment": "Sender 6-DoF pose expressed in the WGS84 global coordinate system.",
+    "agent_type": "string  (e.g. 'ego', 'pov', 'rsu')",
+    "position": {
+      "_comment": "Geographic position in WGS84.",
+      "latitude": "float  (degrees; WGS84)",
+      "longitude": "float  (degrees; WGS84)",
+      "altitude": "float  (meters; above WGS84 ellipsoid)"
+    },
+    "orientation": {
+      "_comment": "Tait-Bryan ZYX angles in the local ENU tangent frame at the sender's WGS84 position. Intrinsic ZYX: R = Rz(yaw) @ Ry(pitch) @ Rx(roll).",
+      "roll": "float  (degrees; rotation about local East axis)",
+      "pitch": "float  (degrees; rotation about local North axis)",
+      "yaw": "float  (degrees; counterclockwise from East, range (-180, 180])"
+    }
+  },
+
+  "reference_frame": {
+    "_comment": "Right-handed coordinate frame. Heading is measured around +z, counterclockwise from +x.",
+    "coordinate_frame": "string  ('ego' | 'sensor' | 'world')",
+    "axes_convention": "x_forward_y_left_z_up"
+  },
+
+  "detections": [
+    {
+      "track_id": "int  (consistent across frames; omit or set null if untracked)",
+      "category": "string  (e.g. 'Car', 'Pedestrian', 'Cyclist')",
+      "score": "float32  (confidence in [0, 1])",
+      "timestamp": "float  (Unix seconds; sensor capture time — time at which the observed scene occurred; must not include inference or transmission latency)",
+      "x": "float32  (meters)",
+      "y": "float32  (meters)",
+      "z": "float32  (meters)",
+      "length": "float32  (meters; along heading direction)",
+      "width": "float32  (meters; perpendicular to heading)",
+      "height": "float32  (meters; vertical)",
+      "heading": "float32  (radians; yaw around z-axis, counterclockwise from +x)",
+      "yaw_rate": "float32  (radians/second; angular velocity around z)",
+      "vx": "float32  (meters/second; along x)",
+      "vy": "float32  (meters/second; along y)",
+      "optional": {
+        "_comment": "All fields below are optional; individual fields may be omitted, or the entire 'optional' object may be omitted",
+        "v": "float32  (meters/second; signed speed magnitude; can be derived from vx, vy)",
+        "a": "float32  (meters/second^2; signed acceleration magnitude)",
+        "ax": "float32  (meters/second^2; along x)",
+        "ay": "float32  (meters/second^2; along y)",
+        "w": "float32  (radians/second^2; angular acceleration around z)"
+      }
+    }
+  ]
+}

@@ -1,0 +1,194 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "message_type": "Ego_3D_ODT",
+    "message_id": "eb82340d-f5c6-495c-8f9a-0759132f2fe2",
+    "sender_id": "EGO",
+    "sequence_number": 21,
+    "send_timestamp": 1793366395.324299,
+    "time_reference": "UTC"
+  },
+  "sender_state": {
+    "agent_type": "ego",
+    "position": {
+      "latitude": 39.4809549648593,
+      "longitude": -0.33979659919237926,
+      "altitude": 10.000025941058993
+    },
+    "orientation": {
+      "roll": 0.0,
+      "pitch": 0.0,
+      "yaw": 0.0
+    }
+  },
+  "reference_frame": {
+    "coordinate_frame": "ego",
+    "axes_convention": "x_forward_y_left_z_up"
+  },
+  "detections": [
+    {
+      "track_id": 1000007,
+      "category": "Pedestrian",
+      "score": 0.9674,
+      "timestamp": 1780000003.0,
+      "x": 17.549,
+      "y": 1.57,
+      "z": 0.89,
+      "length": 0.6,
+      "width": 0.6,
+      "height": 1.75,
+      "heading": 1.6222,
+      "yaw_rate": 0.0,
+      "vx": -0.068,
+      "vy": 1.315,
+      "optional": {
+        "v": 1.317
+      },
+      "sources": [
+        {
+          "sender_id": "DENSO_uwb_ODT",
+          "source_track_id": 7,
+          "score": 0.8718,
+          "capture_timestamp": 1780000002.8711326
+        },
+        {
+          "sender_id": "CTAG_lidar_ODTH",
+          "source_track_id": 31,
+          "score": 0.839,
+          "capture_timestamp": 1780000002.9
+        }
+      ],
+      "fusion_info": {
+        "cooperative": true,
+        "tag_id": 7,
+        "status": "fused",
+        "lidar_track_id": 31,
+        "age_uwb_s": 0.129,
+        "age_lidar_s": 0.1,
+        "pos_std_m": 0.071,
+        "size_measured": true,
+        "link_ambiguous": false
+      }
+    },
+    {
+      "track_id": 32,
+      "category": "Pedestrian",
+      "score": 0.7356,
+      "timestamp": 1780000003.0,
+      "x": 17.035,
+      "y": 0.93,
+      "z": 0.848,
+      "length": 0.6,
+      "width": 0.6,
+      "height": 1.75,
+      "heading": 1.5504,
+      "yaw_rate": 0.0,
+      "vx": 0.249,
+      "vy": 0.97,
+      "optional": {
+        "v": 1.001
+      },
+      "sources": [
+        {
+          "sender_id": "CTAG_lidar_ODTH",
+          "source_track_id": 32,
+          "score": 0.7356,
+          "capture_timestamp": 1780000002.9
+        }
+      ],
+      "fusion_info": {
+        "cooperative": false
+      }
+    },
+    {
+      "track_id": 40,
+      "category": "Car",
+      "score": 0.8608,
+      "timestamp": 1780000003.0,
+      "x": 20.885,
+      "y": -4.202,
+      "z": 0.761,
+      "length": 4.5,
+      "width": 1.8,
+      "height": 1.5,
+      "heading": 0.0264,
+      "yaw_rate": 0.0,
+      "vx": 0.052,
+      "vy": -0.021,
+      "optional": {
+        "v": 0.056
+      },
+      "sources": [
+        {
+          "sender_id": "CTAG_lidar_ODTH",
+          "source_track_id": 40,
+          "score": 0.8608,
+          "capture_timestamp": 1780000002.9
+        }
+      ],
+      "fusion_info": {
+        "cooperative": false
+      }
+    },
+    {
+      "track_id": 41,
+      "category": "Truck",
+      "score": 0.7756,
+      "timestamp": 1780000003.0,
+      "x": 18.554,
+      "y": 1.716,
+      "z": 1.109,
+      "length": 5.2,
+      "width": 2.0,
+      "height": 2.2,
+      "heading": -0.0117,
+      "yaw_rate": 0.0,
+      "vx": -0.154,
+      "vy": 0.593,
+      "optional": {
+        "v": 0.613
+      },
+      "sources": [
+        {
+          "sender_id": "CTAG_lidar_ODTH",
+          "source_track_id": 41,
+          "score": 0.7756,
+          "capture_timestamp": 1780000002.9
+        }
+      ],
+      "fusion_info": {
+        "cooperative": false
+      }
+    },
+    {
+      "track_id": 42,
+      "category": "Car",
+      "score": 0.8834,
+      "timestamp": 1780000003.0,
+      "x": 14.829,
+      "y": 0.056,
+      "z": 0.754,
+      "length": 4.5,
+      "width": 1.8,
+      "height": 1.5,
+      "heading": -0.0284,
+      "yaw_rate": 0.0,
+      "vx": 2.979,
+      "vy": 0.601,
+      "optional": {
+        "v": 3.039
+      },
+      "sources": [
+        {
+          "sender_id": "CTAG_lidar_ODTH",
+          "source_track_id": 42,
+          "score": 0.8834,
+          "capture_timestamp": 1780000002.9
+        }
+      ],
+      "fusion_info": {
+        "cooperative": false
+      }
+    }
+  ]
+}

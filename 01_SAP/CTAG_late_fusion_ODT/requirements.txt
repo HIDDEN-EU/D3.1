@@ -1,0 +1,4 @@
+numpy>=1.23
+scipy>=1.10
+matplotlib         # only for demo_UC2_fusion.py --plot
+pytest>=7.4        # only for test_UC2_fusion.py

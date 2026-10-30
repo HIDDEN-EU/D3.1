@@ -1,0 +1,126 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "message_type": "Ego_3D_ODT",
+    "message_id": "CTAG_lidar_ODTH-40",
+    "sender_id": "CTAG_lidar_ODTH",
+    "sequence_number": 40,
+    "send_timestamp": 1780000003.93,
+    "time_reference": "UTC"
+  },
+  "sender_state": {
+    "agent_type": "ego",
+    "position": {
+      "latitude": 39.480954964810586,
+      "longitude": -0.3397704476571998,
+      "altitude": 10.000032502226532
+    },
+    "orientation": {
+      "roll": 0.0,
+      "pitch": 0.0,
+      "yaw": 0.0
+    }
+  },
+  "reference_frame": {
+    "coordinate_frame": "ego",
+    "axes_convention": "x_forward_y_left_z_up"
+  },
+  "detections": [
+    {
+      "track_id": 31,
+      "category": "pedestrian",
+      "score": 0.8325912359889327,
+      "timestamp": 1780000003.9,
+      "x": 15.046935514240015,
+      "y": 3.1425170814042884,
+      "z": 0.8511188887416767,
+      "length": 0.6,
+      "width": 0.6,
+      "height": 1.75,
+      "heading": 1.6036098564160755,
+      "yaw_rate": 0.0,
+      "vx": -0.31307756012400145,
+      "vy": 1.138739999734368
+    },
+    {
+      "track_id": 32,
+      "category": "pedestrian",
+      "score": 0.9271374372516916,
+      "timestamp": 1780000003.9,
+      "x": 14.5963443454333,
+      "y": 1.947912297548278,
+      "z": 0.8810408657769184,
+      "length": 0.6,
+      "width": 0.6,
+      "height": 1.75,
+      "heading": 1.646741674039978,
+      "yaw_rate": 0.0,
+      "vx": 0.11992173094472634,
+      "vy": 0.930669159275203
+    },
+    {
+      "track_id": 33,
+      "category": "pedestrian",
+      "score": 0.9347273972616618,
+      "timestamp": 1780000003.9,
+      "x": 4.007447883578834,
+      "y": 10.006254858210964,
+      "z": 0.8142503055943648,
+      "length": 0.6,
+      "width": 0.6,
+      "height": 1.75,
+      "heading": -0.0920191848731445,
+      "yaw_rate": 0.0,
+      "vx": 0.9126791247620983,
+      "vy": 0.37038068160095683
+    },
+    {
+      "track_id": 40,
+      "category": "car",
+      "score": 0.7912293907365348,
+      "timestamp": 1780000003.9,
+      "x": 18.06076893462803,
+      "y": -3.85668703972509,
+      "z": 0.6919490960314376,
+      "length": 4.5,
+      "width": 1.8,
+      "height": 1.5,
+      "heading": -0.017001249107451325,
+      "yaw_rate": 0.0,
+      "vx": -0.23221010297314235,
+      "vy": -0.3399203543423464
+    },
+    {
+      "track_id": 41,
+      "category": "truck",
+      "score": 0.7644825053233087,
+      "timestamp": 1780000003.9,
+      "x": 15.854555389986162,
+      "y": 1.6944207193748269,
+      "z": 1.119552444243173,
+      "length": 5.2,
+      "width": 2.0,
+      "height": 2.2,
+      "heading": -0.030027909256067062,
+      "yaw_rate": 0.0,
+      "vx": -0.09901946247100558,
+      "vy": 0.2859020337942902
+    },
+    {
+      "track_id": 42,
+      "category": "car",
+      "score": 0.8873867862805073,
+      "timestamp": 1780000003.9,
+      "x": 14.75238279009739,
+      "y": -0.013932300024560548,
+      "z": 0.7500555519342829,
+      "length": 4.5,
+      "width": 1.8,
+      "height": 1.5,
+      "heading": 0.06894697506404925,
+      "yaw_rate": 0.0,
+      "vx": 2.086879118284422,
+      "vy": -0.0038721666498379124
+    }
+  ]
+}
