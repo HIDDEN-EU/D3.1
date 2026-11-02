@@ -1,0 +1,48 @@
+# Headless DGT daemon: frames -> TensorRT -> DGT_DS on ROS 2 (docs/DGT_DS.md).
+# Install:  sudo cp deploy/dgt.service /etc/systemd/system/
+#           sudo systemctl daemon-reload && sudo systemctl enable --now dgt
+#
+# This unit hardcodes no deployment path. It REQUIRES /etc/default/dgt:
+#     DGT_DIR=<path to edge_inference>   # holds .env and .venv
+#     DGT_VENV=...                                # optional, defaults to $DGT_DIR/.venv
+# and User= below set to the owner of that checkout.
+# Configuration itself comes from the .env in DGT_DIR (see .env.example).
+# Without DGT_DIR the unit fails immediately and says so in journalctl.
+# ROS_DOMAIN_ID and ROS_LOCALHOST_ONLY must match deploy/rosbridge.service.
+#
+# The CSI camera can be held by only one process: while another process holds
+# it, point DGT_ROAD_SOURCE at a stream or a file, not nvarguscamerasrc.
+[Unit]
+Description=DGT daemon (headless: DGT_DS on ROS 2)
+After=network.target nvargus-daemon.service
+
+[Service]
+User=jetson
+# `~` is the home of User=, which always exists, so systemd never fails with
+# status=200/CHDIR; the real directory is DGT_DIR, entered in ExecStart because
+# WorkingDirectory= does no variable expansion. Not `%h`: in a system unit that
+# is /root.
+WorkingDirectory=~
+EnvironmentFile=-/etc/default/dgt
+Environment=ROS_DOMAIN_ID=0
+Environment=ROS_LOCALHOST_ONLY=1
+# Without this Python block-buffers the journal pipe and diagnostics arrive
+# minutes late.
+Environment=PYTHONUNBUFFERED=1
+# Login shell for /etc/profile.d; the --system-site-packages venv exposes
+# JetPack's cv2 / TensorRT and, once Humble is sourced, rclpy — so no
+# PYTHONPATH here. Without the source the daemon exits: ROS is its only
+# output. `exec` matters: without it
+# SIGTERM goes to bash, which does not forward it, and the capture handles are
+# never released. `$$` leaves the variables for bash, since systemd understands
+# neither ${VAR:?msg} nor ${VAR:-default}.
+ExecStart=/bin/bash -lc 'cd "$${DGT_DIR:?not set: create /etc/default/dgt with DGT_DIR=/path/to/checkout}" && source /opt/ros/humble/setup.bash && exec "$${DGT_VENV:-$$PWD/.venv}/bin/dgt-daemon"'
+# SIGTERM only, never SIGKILL — a killed capture leaves nvarguscamerasrc blocked.
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

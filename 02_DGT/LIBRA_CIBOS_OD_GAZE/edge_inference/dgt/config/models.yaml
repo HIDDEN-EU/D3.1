@@ -1,0 +1,37 @@
+# Where each model's ONNX lives, and its input shapes for the on-device engine build
+# (`dgt-build-engines`). Engines are built on the device, never shipped.
+#
+# `source` takes exactly ONE of:
+#   path  - a local ONNX file
+#   url   - a download URL; the file is cached next to the engines
+# and optionally `sha256`, checked before the build.
+#
+# An entry whose source names no artifact is skipped. Fill in the paths after you
+# obtain the models:
+#   face_detector, landmark_detector - det_500m.onnx and 2d106det.onnx from the
+#       InsightFace `buffalo_s` model pack (not redistributed; see its licence)
+#   gaze_estimator                   - `export-onnx` of ../gaze_estimation
+#   road_object_detector             - `export-onnx` of ../road_object_detection
+
+landmark_detector:
+  source:
+    path: null
+  input_shapes: [[1, 3, 192, 192]]
+
+face_detector:
+  source:
+    path: null
+  input_shapes: [[1, 3, 640, 640]]
+
+# One input (face_img, 1x3x112x112), one output (gaze, 1x2).
+gaze_estimator:
+  source:
+    path: null
+  input_shapes: [[1, 3, 112, 112]]
+
+# 9 classes, index order of dgt/contracts/detections.py. Trained on 640x360 tiles;
+# NMS not in the graph.
+road_object_detector:
+  source:
+    path: null
+  input_shapes: [[1, 3, 640, 640]]

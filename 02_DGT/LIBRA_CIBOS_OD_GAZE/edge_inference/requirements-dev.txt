@@ -1,0 +1,5 @@
+# Development machine (non-Jetson). The headless tests need numpy + pyyaml +
+# pytest + opencv-python; the road-object adapter tests skip without
+# road-object-detection.
+-e ../road_object_detection
+-e .[dev,daemon]

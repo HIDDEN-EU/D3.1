@@ -1,0 +1,17 @@
+# Jetson (JetPack 6.2) runtime.
+#
+# Install into a venv created with `python3 -m venv --system-site-packages .venv`
+# so JetPack's OpenCV (with GStreamer), numpy and TensorRT stay visible. Do NOT
+# pip-install opencv-python on the device — that wheel has no GStreamer support
+# and the CSI camera pipeline will not open.
+#
+#   pip install --upgrade pip     # FIRST: pip 22.0.2 builds the package as UNKNOWN-0.0.0
+#   pip install -r requirements.txt
+#
+# Wheel, never `-e .`: an editable install on-device with setuptools 59.6.0
+# silently produces `UNKNOWN 0.0.0` with no console script.
+#
+# The road-object tiling recipe, from the sibling folder. Base install = NumPy
+# only; never its [train] extra here (torch, ultralytics, opencv-python).
+../road_object_detection
+.[jetson,daemon]

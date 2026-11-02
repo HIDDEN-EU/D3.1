@@ -1,0 +1,11 @@
+# dgt-daemon settings. Per-unit values (sender id, source, engine path) come
+# from the environment / .env. Message format: docs/DGT_DS.md.
+
+message:
+  # PROVISIONAL — not agreed with the consumers.
+  schema_version: "0.1.0"
+  message_type: DGT_DS
+  time_reference: UTC
+
+# DGT_DS `frame_id` of the road camera. PROVISIONAL — the reference's example.
+road_frame_id: road_camera

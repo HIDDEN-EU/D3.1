@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "road-object-detection"
+version = "0.6.0"
+requires-python = ">=3.10"
+license = {text = "AGPL-3.0"}
+readme = "README.md"
+# The base install is what the edge service (../edge_inference) imports on the Jetson:
+# `road_object_detection.inference`, NumPy and nothing else. No torch/ultralytics (the
+# device runs a TensorRT engine) and no opencv-python (it shadows JetPack's cv2) — the
+# module imports cv2 lazily and leaves providing it to the environment.
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# Training, evaluation and every CLI below: `pip install -e ".[train]"`.
+train = [
+    "torch==2.7.1",
+    "ultralytics==8.4.31",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "opencv-python>=4.8",
+    "mlflow>=2.0",
+    "python-dotenv>=1.0",
+]
+test = [
+    "pytest>=7.0",
+]
+dev = [
+    "ruff==0.14.6",
+    "ty==0.0.12",
+]
+# Deployment export only. Kept out of the base install: training and evaluation
+# never need them, and the export runs once per published model.
+export = [
+    "road-object-detection[train]",
+    "onnx>=1.16",
+    "onnxslim>=0.1.48",
+    "onnxruntime>=1.18",
+]
+[project.scripts]
+train              = "road_object_detection.training.train:main"
+bdd100k            = "scripts.bdd100k:main"
+rare-classes-report = "scripts.rare_classes_report:main"
+tile-dataset        = "scripts.tile_dataset:main"
+verify-tiles        = "scripts.verify_tiles:main"
+generate-manifest   = "scripts.generate_manifest:main"
+baseline-check     = "scripts.baseline_check:main"
+compare-baseline   = "scripts.compare_baseline:main"
+dataset-stats      = "scripts.dataset_stats:main"
+infer-test-tiled   = "scripts.infer_test_tiled:main"
+evaluate-model     = "scripts.evaluate_model:main"
+export-onnx        = "scripts.export_onnx:main"
+infer-video        = "scripts.infer_video:main"
+live-infer         = "scripts.live_infer:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["road_object_detection", "scripts"]
+

@@ -1,0 +1,46 @@
+# Signal thresholds, window lengths and model tunables. The code's fallback
+# defaults apply only to keys missing here.
+
+# Geometric 106-point EAR threshold (attention/ear.py) — not the 6-point EAR scale.
+# PROVISIONAL — uncalibrated.
+ear_threshold: 0.20
+
+perclos:
+  window_seconds: 30.0
+  # Fraction of the window that must be filled before PERCLOS is reported.
+  min_fill_frac: 1.0
+
+# dgt/models/road_objects.py
+road_objects:
+  # PROVISIONAL — from the training run (occ_eval_conf); not tuned for
+  # deployment. The only runtime knob: the tiling recipe itself (grid, letterbox,
+  # per-tile NMS IoU 0.7, cross-tile NMS IoU 0.5) is a property of the weights
+  # and lives in road_object_detection.inference (../road_object_detection).
+  conf_threshold: 0.25
+  # 640x360 tiles, the crop size the weights were fine-tuned on.
+  tile: true
+
+# dgt/models/landmarks.py — the SCRFD face detector in front of 2d106det.
+face_landmarks:
+  # PROVISIONAL — InsightFace's SCRFD defaults.
+  det_threshold: 0.5
+  nms_threshold: 0.4
+
+# dgt/models/gaze.py
+gaze:
+  # Size of the target plane in the units of the calibration targets; divides a
+  # calibrated point to [0, 1]. dgt/calibration.py uses normalised targets, so 1 x 1.
+  screen_grid_cols: 1
+  screen_grid_rows: 1
+
+  # Gaze -> road-camera affine (dgt/attention/gaze_roi.py).
+  # PROVISIONAL — PLACEHOLDER identity, not measured.
+  roi_scale_x: 1.0
+  roi_scale_y: 1.0
+  roi_offset_x: 0.0
+  roi_offset_y: 0.0
+  # The road region gaze selects is the fixed grid tile holding the gaze point
+  # (scripts/testgazeroi.py). Grow it by this fraction of its size, on every side.
+  # PROVISIONAL — absorbs gaze error,
+  # at the cost of the detector seeing a smaller scale than it was trained on.
+  roi_margin: 0.15
