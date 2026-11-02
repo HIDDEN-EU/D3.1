@@ -1,0 +1,30 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+
+# Model artifacts are never committed: a .engine is valid only for the exact
+# GPU/JetPack/TensorRT that built it.
+*.onnx
+*.engine
+*.trt
+*.plan
+*.pt
+/engines/
+
+*.log
+.pytest_cache/
+
+# Packaging build artifacts. A stale build/ silently poisons the next wheel.
+dist/
+build/
+*.egg-info/
+
+# Test footage: large, and not ours to redistribute.
+*.mp4
+*.mkv
+*.avi
+media/
+
+# Per-installation gaze calibration (dgt/calibration.py).
+calibration/

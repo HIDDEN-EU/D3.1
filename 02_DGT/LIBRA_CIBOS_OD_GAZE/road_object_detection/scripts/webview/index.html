@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tiled inference — BDD100K test</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Tiled inference viewer <span class="sub">BDD100K test · 2×2 tiles</span></h1>
+    <div class="meta" id="meta"></div>
+    <div class="controls">
+      <label>Min confidence
+        <input type="range" id="conf" min="0" max="1" step="0.01" value="0.25">
+        <span id="confval">0.25</span>
+      </label>
+      <label><input type="checkbox" id="tiles" checked> Show 2×2 tile grid</label>
+      <label><input type="checkbox" id="labels" checked> Show labels</label>
+    </div>
+  </header>
+  <main id="grid"></main>
+  <script src="manifest.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

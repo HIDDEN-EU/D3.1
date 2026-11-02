@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dgt-edge-inference"
+version = "0.1.0"
+description = "HIDDEN T3.2 DGT edge service: gaze estimation, gaze calibration and gaze-directed road-object detection on NVIDIA Jetson Orin Nano"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    # numpy<2 is a HARD constraint, not a preference: JetPack's system cv2 is
+    # compiled against NumPy 1.x, and a venv NumPy 2.x shadows it and breaks the
+    # cv2 import (and with it the CSI camera pipeline).
+    "numpy>=1.24,<2",
+    "pyyaml>=6.0",
+    # The road-object tiling recipe (grid, letterbox, decode, NMS), owned by the
+    # package that trains the weights (../road_object_detection): `models/road_objects.py`
+    # imports `road_object_detection.inference` instead of keeping a copy. Its base
+    # install is NumPy only.
+    "road-object-detection",
+]
+
+[project.optional-dependencies]
+# On the Jetson: CUDA bindings for the TensorRT runner (models/trt.py). TensorRT
+# itself and OpenCV with GStreamer come from JetPack.
+jetson = ["cuda-python~=12.6"]
+# Off the Jetson: OpenCV for preprocessing, calibration and the harnesses.
+dev = ["pytest>=7.0", "build>=1.0", "opencv-python>=4.8,<5"]
+# The dgt-daemon reads the unit's .env.
+daemon = ["python-dotenv>=1.0"]
+
+[project.scripts]
+# Headless DGT runtime: frames -> TensorRT -> DGT_DS messages on ROS 2 (docs/DGT_DS.md).
+# Runs under deploy/dgt.service. Needs the `daemon` extra.
+dgt-daemon = "dgt.daemon:main"
+# ONNX (dgt/config/models.yaml) -> FP16 TensorRT engines, on the device.
+dgt-build-engines = "dgt.engine_build:main"
+
+[tool.setuptools.packages.find]
+# The include filter is required — without it setuptools also discovers tests/
+# and refuses to build ("multiple top-level packages").
+include = ["dgt*"]
+
+[tool.setuptools.package-data]
+# The YAMLs are the runtime's tunables; they must ship inside the wheel.
+dgt = ["config/*.yaml"]

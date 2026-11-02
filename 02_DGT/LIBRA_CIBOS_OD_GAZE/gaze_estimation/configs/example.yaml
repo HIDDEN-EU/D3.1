@@ -1,0 +1,26 @@
+# Example training configuration. Paths are relative to the working directory.
+model:
+  name: vit_small_patch16_224   # any timm ViT; img_size is set to 112
+  pretrained: true              # ImageNet weights from timm
+  n_trainable_blocks: 4         # fine-tune only the last N transformer blocks
+  head_hidden_dim: 256
+  dropout: 0.1
+
+data:
+  manifest: data/manifest.csv   # columns: image_path, subject, x, y
+  image_size: 112
+  bounds_quantile: 0.1          # targets normalised to [-1, 1] between the 10th and 90th percentile
+  train_subjects: [s01, s02, s03, s04, s05, s06]
+  val_subjects: [s07]
+  test_subjects: [s08]
+
+train:
+  epochs: 50
+  batch_size: 64
+  lr: 1.0e-4
+  patience: 8                   # early stopping on the validation loss
+  min_delta: 1.0e-4
+  num_workers: 4
+  seed: 42
+  device: auto
+  output_dir: runs/example

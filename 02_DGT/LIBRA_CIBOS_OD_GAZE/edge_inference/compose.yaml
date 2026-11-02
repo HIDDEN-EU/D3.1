@@ -1,0 +1,89 @@
+# DGT on a Jetson: dgt-daemon + rosbridge + Janus, and the one-shot engine builder.
+# Jetson only (arm64, L4T, CSI camera through the host's nvargus-daemon).
+#
+# First time on a unit:
+#   docker compose build
+#   docker compose run --rm engine-builder        # ONNX -> FP16 engines (~20 min)
+#   docker compose up -d
+#   docker compose logs -f dgt
+#
+# Every service uses the host network: ROS 2 discovery and the RTP ports Janus
+# listens on assume it.
+
+name: dgt
+
+x-dgt: &dgt-image
+  image: ${DGT_IMAGE:-dgt-edge-inference}:${DGT_VERSION:-dev}
+  runtime: nvidia
+  network_mode: host
+  # DDS shared-memory transport needs one IPC namespace across the ROS
+  # containers, or discovery works and no message arrives.
+  ipc: host
+  init: true
+
+x-ros-env: &ros-env
+  # Must match every other ROS process on the unit.
+  ROS_DOMAIN_ID: "0"
+  ROS_LOCALHOST_ONLY: "1"
+
+services:
+  dgt:
+    <<: *dgt-image
+    build:
+      context: ..
+      dockerfile: edge_inference/Dockerfile
+    env_file: .env
+    environment:
+      <<: *ros-env
+      # Container paths win over the host paths in .env.
+      ROAD_OBJECTS_ENGINE_PATH: /data/engines/road_objects_640x640_fp16.engine
+    volumes:
+      - dgt-data:/data:ro
+      - /tmp/argus_socket:/tmp/argus_socket
+      - ${DGT_MEDIA_DIR:-./media}:/media:ro
+    # SIGTERM only, with time to release the capture: a killed capture leaves
+    # nvarguscamerasrc blocked.
+    stop_signal: SIGTERM
+    stop_grace_period: 20s
+    restart: unless-stopped
+
+  # One-shot: `docker compose run --rm engine-builder`. It runs in the same
+  # image as dgt, so the TensorRT that builds an engine is the one that loads
+  # it. Existing engines are skipped; add --force after a base-image bump.
+  # Put the ONNX files and a filled-in copy of dgt/config/models.yaml (paths
+  # relative to ./models) under ./models.
+  engine-builder:
+    <<: *dgt-image
+    profiles: [provision]
+    working_dir: /models
+    command: ["dgt-build-engines", "--models-config", "/models/models.yaml",
+              "--engine-dir", "/data/engines"]
+    volumes:
+      - dgt-data:/data
+      - ${DGT_MODELS_DIR:-./models}:/models:ro
+    restart: "no"
+
+  rosbridge:
+    <<: *dgt-image
+    environment: *ros-env
+    command: ["ros2", "launch", "rosbridge_server", "rosbridge_websocket_launch.xml", "port:=9090"]
+    restart: unless-stopped
+
+  # Janus WebRTC gateway for the calibration tool's video panes. Any Janus 1.4
+  # image; the configuration in deploy/janus/ disables recording and sets no
+  # STUN/TURN server, so media reaches clients on the local network only.
+  janus:
+    image: ${JANUS_IMAGE:?set JANUS_IMAGE to a Janus 1.4 image}
+    container_name: janus
+    network_mode: host
+    volumes:
+      - ./deploy/janus/janus.jcfg:/usr/local/etc/janus/janus.jcfg:ro
+      - ./deploy/janus/janus.plugin.streaming.jcfg:/usr/local/etc/janus/janus.plugin.streaming.jcfg:ro
+    restart: unless-stopped
+
+volumes:
+  # The engines. The name carries the L4T tag because an engine is valid only
+  # for the TensorRT that built it: a new base image gets an empty volume
+  # instead of stale engines.
+  dgt-data:
+    name: dgt-data-r36.4.0

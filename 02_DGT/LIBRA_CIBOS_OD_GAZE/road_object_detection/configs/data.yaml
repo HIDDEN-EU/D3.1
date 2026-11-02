@@ -1,0 +1,30 @@
+# Dataset configuration for YOLOv11 training on BDD100K.
+# Reference for the 13-class labels that `bdd100k` writes. Training uses the data.yaml
+# that `tile-dataset` generates next to the tiled dataset.
+
+# Root folder of the dataset. Change this to wherever you extracted BDD100K.
+path: data/bdd100k
+
+train: images/100k/train # full path: .../bdd100k/images/100k/train
+val: images/100k/val # full path: .../bdd100k/images/100k/val
+# Ultralytics derives label paths by replacing /images/ with /labels/ automatically.
+# So labels are expected at .../bdd100k/labels/100k/train — exactly where the
+# `bdd100k` command writes them.
+
+# Number of classes — must match CLASS_MAP in scripts/bdd100k.py
+nc: 13
+
+names:
+  0: pedestrian
+  1: rider
+  2: car
+  3: truck
+  4: bus
+  5: motorcycle
+  6: bicycle
+  7: traffic light
+  8: traffic sign
+  9: other person
+  10: other vehicle
+  11: trailer
+  12: train

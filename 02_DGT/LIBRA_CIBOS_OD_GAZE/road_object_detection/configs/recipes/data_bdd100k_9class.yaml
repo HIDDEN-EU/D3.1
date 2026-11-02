@@ -1,0 +1,28 @@
+# Tile-dataset recipe for the 9-class BDD100K variant (D3.1 Section 3.3.1).
+# `path` is the BDD100K root that `tile-dataset` reads. Class ids are in the original
+# 13-class space of configs/data.yaml; the merges and drops below reduce it to 9.
+# `tile-dataset --output <dir>` writes the 9-class dataset and its own data.yaml to <dir>.
+path: data/bdd100k
+train: images/100k/train
+val: images/100k/val
+nc: 13
+names:
+  0: pedestrian
+  1: rider
+  2: car
+  3: truck
+  4: bus
+  5: motorcycle
+  6: bicycle
+  7: traffic light
+  8: traffic sign
+  9: other person
+  10: other vehicle
+  11: trailer
+  12: train
+class_merges:
+  9: 0   # other person -> pedestrian
+  11: 3  # trailer -> truck
+class_drops:
+  - 10   # other vehicle
+  - 12   # train

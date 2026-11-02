@@ -1,0 +1,28 @@
+# Janus 1.4 core configuration for the DGT calibration tool (D3.1 Section 3.6.1.3).
+# It matches the deployed setup. Only the settings that matter here are listed;
+# every other setting keeps the Janus default.
+
+general: {
+	configs_folder = "/usr/local/etc/janus"
+	plugins_folder = "/usr/local/lib/janus/plugins"
+	transports_folder = "/usr/local/lib/janus/transports"
+}
+
+# No STUN and no TURN server is configured, so the only ICE candidates are the
+# addresses of the device on the local network. A media path can only be set up
+# with a client on that same network.
+nat: {
+	# Set this to the address of the device on the local network, if the gateway
+	# runs in a container whose address differs from it.
+	#nat_1_1_mapping = "<device LAN address>"
+}
+
+# Only the streaming plugin is needed. The record-and-play plugin is disabled,
+# so no recording can be started.
+plugins: {
+	disable = "libjanus_echotest.so,libjanus_recordplay.so,libjanus_textroom.so,libjanus_videoroom.so,libjanus_nosip.so,libjanus_videocall.so,libjanus_sip.so"
+}
+
+transports: {
+	disable = "libjanus_rabbitmq.so"
+}

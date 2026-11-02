@@ -1,0 +1,19 @@
+{
+  "name": "rafdb_efficientnet_b0",
+  "data": {
+    "dataset": "rafdb",
+    "root": "data/raf-db",
+    "batch_size": 64,
+    "split": {"strategy": "source", "val_ratio": 0.1, "seed": 42}
+  },
+  "model": {
+    "backbone": "efficientnet_b0",
+    "num_classes": 7,
+    "pretrained": true
+  },
+  "training": {
+    "epochs": 30,
+    "lr": 0.0003,
+    "checkpoint_dir": "checkpoints"
+  }
+}

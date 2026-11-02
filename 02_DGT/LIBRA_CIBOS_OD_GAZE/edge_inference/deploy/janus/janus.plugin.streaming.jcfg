@@ -1,0 +1,67 @@
+# RTP mountpoints for the calibration tool (D3.1 Section 3.6.1.3). The encoder on
+# the device sends H.264 over RTP to these ports. Nothing is recorded.
+
+general: {
+}
+
+# The four in-cabin panes, as one multistream mountpoint.
+multistream-h264-in-cabin-view: {
+	type = "rtp"
+	id = 11
+	description = "In-cabin view, face crop and eye crops"
+	audio = false
+	video = true
+	data = false
+	media = (
+		{
+			type = "video"
+			mid = "0"
+			label = "In-cabin view"
+			port = 28004
+			pt = 96
+			codec = "h264"
+			fmtp = "profile-level-id=42e01f;packetization-mode=1"
+		},
+		{
+			type = "video"
+			mid = "1"
+			label = "Face crop"
+			port = 28005
+			pt = 96
+			codec = "h264"
+			fmtp = "profile-level-id=42e01f;packetization-mode=1"
+		},
+		{
+			type = "video"
+			mid = "2"
+			label = "Left eye crop"
+			port = 28006
+			pt = 96
+			codec = "h264"
+			fmtp = "profile-level-id=42e01f;packetization-mode=1"
+		},
+		{
+			type = "video"
+			mid = "3"
+			label = "Right eye crop"
+			port = 28007
+			pt = 96
+			codec = "h264"
+			fmtp = "profile-level-id=42e01f;packetization-mode=1"
+		}
+	)
+}
+
+# The road-facing camera view.
+stream-h264-road-view: {
+	type = "rtp"
+	id = 12
+	description = "Road view"
+	audio = false
+	video = true
+	data = false
+	videoport = 28008
+	videopt = 96
+	videocodec = "h264"
+	videofmtp = "profile-level-id=42e01f;packetization-mode=1"
+}

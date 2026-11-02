@@ -1,0 +1,13 @@
+# Build context is the parent folder (LIBRA_CIBOS_OD_GAZE/). Only what the
+# Dockerfile COPYs is let in.
+*
+!edge_inference/pyproject.toml
+!edge_inference/README.md
+!edge_inference/dgt/
+!edge_inference/scripts/
+!edge_inference/docker/
+!road_object_detection/pyproject.toml
+!road_object_detection/README.md
+!road_object_detection/road_object_detection/
+!road_object_detection/scripts/
+**/__pycache__

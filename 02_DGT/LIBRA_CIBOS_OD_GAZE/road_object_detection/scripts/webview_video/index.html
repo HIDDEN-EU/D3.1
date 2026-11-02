@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>infer-video — model performance</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Tiled video inference <span id="src" class="sub"></span></h1>
+  </header>
+  <main>
+    <section class="player">
+      <video id="vid" controls preload="metadata"></video>
+      <div id="warn" class="warn" hidden></div>
+      <div id="live" class="live"></div>
+      <canvas id="timeline" height="84"></canvas>
+      <div class="tlabel">detections per processed frame · red line = playhead</div>
+    </section>
+    <aside class="panel">
+      <h2>Throughput &amp; latency</h2>
+      <div id="perf" class="kv"></div>
+      <h2>Detections by class</h2>
+      <div id="classes" class="bars"></div>
+    </aside>
+  </main>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
