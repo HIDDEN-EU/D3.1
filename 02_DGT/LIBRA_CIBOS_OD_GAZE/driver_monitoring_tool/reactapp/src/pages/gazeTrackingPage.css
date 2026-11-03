@@ -1,0 +1,173 @@
+.gt-card--calibration {
+  --gt-accent: #d60093;
+  --gt-accent-dark: #a3006f;
+  --gt-accent-soft: rgba(214, 0, 147, 0.06);
+  --gt-accent-border: rgba(214, 0, 147, 0.22);
+}
+
+.gt-card--mapping {
+  --gt-accent: #022c7e;
+  --gt-accent-dark: #011d55;
+  --gt-accent-soft: rgba(2, 44, 126, 0.05);
+  --gt-accent-border: rgba(2, 44, 126, 0.2);
+}
+
+.gt-card.ant-card {
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(2, 44, 126, 0.08);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(2, 44, 126, 0.08);
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.gt-card.ant-card:hover {
+  box-shadow: 0 12px 32px rgba(2, 44, 126, 0.14);
+  transform: translateY(-2px);
+}
+
+.gt-card .ant-card-head {
+  min-height: 0;
+  padding: 18px 22px;
+  border-bottom: 0;
+}
+
+.gt-card--calibration .ant-card-head {
+  background: linear-gradient(120deg, #d60093 0%, #a3006f 100%);
+}
+
+.gt-card--mapping .ant-card-head {
+  background: linear-gradient(120deg, #2c55a8 0%, #022c7e 100%);
+}
+
+.gt-card .ant-card-head-title {
+  overflow: visible;
+}
+
+.gt-card-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.gt-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gt-card-heading .ant-typography {
+  color: #ffffff;
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.gt-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+  font-size: 19px;
+}
+
+.gt-card .ant-btn.gt-start-btn {
+  background: #ffffff;
+  color: var(--gt-accent);
+  border: 0;
+  border-radius: 999px;
+  padding-inline: 22px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.gt-card .ant-btn.gt-start-btn:not(:disabled):hover {
+  background: #ffffff;
+  color: var(--gt-accent-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+}
+
+.gt-card .ant-btn.gt-start-btn:disabled {
+  background: rgba(255, 255, 255, 0.55);
+  color: rgba(0, 0, 0, 0.35);
+  box-shadow: none;
+}
+
+.gt-card .ant-card-body {
+  padding: 22px;
+}
+
+.gt-section-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8a8fa3;
+}
+
+.gt-section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(2, 44, 126, 0.1);
+}
+
+.gt-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.gt-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--gt-accent-soft);
+  border: 1px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+.gt-option:hover {
+  border-color: var(--gt-accent-border);
+}
+
+.gt-option label {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.gt-card-footer {
+  margin-top: 20px;
+}
+
+.gt-card .ant-btn.gt-debug-btn {
+  background: transparent;
+  color: var(--gt-accent);
+  border: 2px solid var(--gt-accent);
+  border-radius: 999px;
+  padding-inline: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.gt-card .ant-btn.gt-debug-btn:not(:disabled):hover {
+  background: var(--gt-accent);
+  color: #ffffff;
+  border-color: var(--gt-accent);
+}

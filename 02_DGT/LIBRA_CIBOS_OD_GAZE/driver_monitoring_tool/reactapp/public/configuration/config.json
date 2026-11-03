@@ -1,0 +1,8 @@
+{
+  "apiBaseUrl": "http://localhost:8000",
+  "janusUrl": "http://localhost:8088/janus",
+  "rosbridgeUrl": "ws://localhost:9090",
+  "appName": "HIDDEN GAZE TRACKING",
+  "version": "1.0.0",
+  "useKeycloak": false
+}

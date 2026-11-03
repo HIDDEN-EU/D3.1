@@ -1,0 +1,49 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+.venv-win/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Test reports and coverage
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Docker
+*.pid
+*.db
+
+# OS junk files
+.DS_Store
+Thumbs.db
+
+*.pkl

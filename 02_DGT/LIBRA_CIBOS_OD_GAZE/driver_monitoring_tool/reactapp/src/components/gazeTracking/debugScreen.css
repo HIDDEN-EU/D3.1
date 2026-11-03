@@ -1,0 +1,15 @@
+.calibration-switch.ant-switch.ant-switch-checked{
+    background-color: #d60093;
+}
+
+.calibration-switch.ant-switch.ant-switch-checked:hover{
+    background-color: #d60093;
+}
+
+.inference-switch.ant-switch.ant-switch-checked{
+    background-color: #2c55a8;
+}
+
+.inference-switch.ant-switch.ant-switch-checked:hover{
+    background-color: #2c55a8;
+}

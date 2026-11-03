@@ -1,0 +1,36 @@
+/* Normal state: centered with a fixed height */
+.video-wrapper {
+  width: 100%;
+  max-width: 700px;
+  height: 500px;
+  min-height: 0; 
+  min-width: 0;
+  margin: 20px auto;
+  /* background-color: white; */
+  display: flex;
+  flex-direction: column;
+  position: relative; /* For positioning buttons inside */
+  /* cursor: none; */
+}
+
+/* Native Fullscreen state: triggered by the Browser API */
+.video-wrapper:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* background-color: white; */
+}
+
+.video-wrapper:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  /* background-color: white; */
+}
+
+.hidden-video {
+  display: none;
+}

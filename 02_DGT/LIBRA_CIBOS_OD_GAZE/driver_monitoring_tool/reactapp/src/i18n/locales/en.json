@@ -1,0 +1,29 @@
+{
+  "common": {
+    "settings": "Settings",
+    "gaze_tracking": "Gaze Tracking",
+    "logout": "Logout",
+    "profile": "Profile",
+    "reset": "Reset",
+    "refresh": "Refresh",
+    "loading": "Loading...",
+    "no_data": "No data available",
+    "unexpected_error": "An unexpected error occurred. Please try again."
+  },
+  "errors": {
+    "api_error_title": "System Alert",
+    "unauthorized": "Your session has expired. Please log in again.",
+    "forbidden": "You do not have permission to perform this action.",
+    "not_found": "The requested resource could not be found.",
+    "server_error": "Internal server error. Our team has been notified.",
+    "network_error": "Network connectivity issue. Please check your internet.",
+    "bad_request": "Invalid request parameters. Please verify your input."
+  },
+  "error_boundary": {
+    "title": "Something went wrong",
+    "subtitle": "The application encountered an unexpected error and cannot continue rendering this part of the page.",
+    "reload_button": "Reload Application",
+    "home_button": "Back to Home",
+    "technical_details": "Technical Details"
+  }
+}
