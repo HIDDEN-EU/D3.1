@@ -1,0 +1,227 @@
+.profile-hover:hover {
+  background-color: rgba(228, 0, 124, 0.08);
+}
+
+.main-layout {
+  min-height: 100vh;
+}
+
+.main-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  height: 72px;
+  line-height: normal;
+  z-index: 2;
+  position: relative;
+}
+
+.main-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--brand-accent, #E4007C) 0%, #022C7E 55%, rgba(2, 44, 126, 0) 100%);
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.logo-container:hover {
+  opacity: 0.85;
+}
+
+.logo-mark {
+  height: 46px;
+  width: auto;
+  display: block;
+  flex-shrink: 0;
+  transition: transform 0.3s ease;
+}
+
+.logo-container:hover .logo-mark {
+  transform: rotate(-6deg);
+}
+
+.logo-wordmark {
+  padding: 4px 0 4px 12px;
+  border-left: 1px solid;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 10px 6px 14px;
+  border: 1px solid;
+  border-radius: 999px;
+}
+
+.header-actions-divider {
+  width: 1px;
+  height: 20px;
+}
+
+.header-status {
+  display: inline-flex;
+  align-items: center;
+}
+
+.header-status .anticon {
+  font-size: 20px !important;
+}
+
+.logo-icon {
+  font-size: 24px;
+  color: #E4007C;
+}
+
+.logo-image {
+  height: 88px;
+  width: auto;
+  display: block;
+}
+
+.logo-title.ant-typography {
+  margin: 0;
+  color: #022c7e;
+}
+
+.profile-menu {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 6px;
+  transition: background 0.3s;
+}
+
+.profile-avatar {
+  background-color: #E4007C;
+}
+
+.profile-name {
+  user-select: none;
+}
+
+
+.main-menu {
+  height: 100%;
+  border-right: 0;
+  padding-top: 20px;
+}
+
+.main-sider {
+  box-shadow: 2px 0 12px rgba(2, 44, 126, 0.12);
+}
+
+.main-sider::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.09) 1px, transparent 1px);
+  background-size: 28px 28px;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 15%, transparent 80%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 15%, transparent 80%);
+}
+
+.main-menu.ant-menu-dark .ant-menu-item {
+  font-weight: 500;
+}
+
+.main-menu.ant-menu-dark .ant-menu-item-selected {
+  background: linear-gradient(120deg, #d60093 0%, #a3006f 100%);
+  box-shadow: 0 6px 18px rgba(214, 0, 147, 0.35);
+}
+
+.content-layout {
+  padding: 28px;
+  background: transparent;
+}
+
+.main-content {
+  margin: 0;
+  min-height: 280px;
+  padding: 28px;
+  border-radius: 16px;
+}
+
+.content-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 100% 100%, rgba(2, 44, 126, 0.09), transparent 50%);
+}
+
+.content-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(2, 44, 126, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(2, 44, 126, 0.05) 1px, transparent 1px);
+  background-size: 36px 36px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 70% at 70% 65%, #000 10%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 70% at 70% 65%, #000 10%, transparent 75%);
+}
+
+.content-rings {
+  position: absolute;
+  left: 78%;
+  top: 68%;
+  width: 1100px;
+  height: 1100px;
+  transform: translate(-50%, -50%);
+  fill: none;
+  stroke: rgba(2, 44, 126, 0.07);
+  stroke-width: 1.5;
+}
+
+.content-rings .ring-dashed {
+  stroke: rgba(214, 0, 147, 0.12);
+  stroke-dasharray: 3 9;
+}
+
+.content-rings .ring-pulse {
+  stroke: rgba(214, 0, 147, 0.18);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ring-pulse 7s ease-out infinite;
+}
+
+@keyframes ring-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(3.4); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content-rings .ring-pulse {
+    animation: none;
+  }
+}
+
+.main-footer {
+  text-align: center;
+  color: #8c8c8c;
+  background: transparent;
+  padding: 16px 24px;
+  font-size: 13px;
+}

@@ -1,0 +1,5 @@
+{
+  "url": "https://keycloak.example.com/",
+  "realm": "my-realm",
+  "clientId": "my-client"
+}
